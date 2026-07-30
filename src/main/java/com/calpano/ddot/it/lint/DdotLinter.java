@@ -244,6 +244,14 @@ public final class DdotLinter {
                 return;
             }
         }
+        // An empty meta part is a multi-line metadata block OPENER: the canonical
+        // form is a triple line ending in `␣,,` with nothing after it, so appending
+        // the usual separating space would leave end-of-line whitespace and violate
+        // DL009 (which this same pass is supposed to enforce).
+        if (metaText.isEmpty()) {
+            sb.append(" ,,");
+            return;
+        }
         // free note or empty-value: preserve verbatim (edge-trimmed), matching the reader's IMeta {"": text}.
         sb.append(" ,, ").append(metaText);
     }

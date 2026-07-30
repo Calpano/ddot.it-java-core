@@ -45,10 +45,18 @@ public final class DdotLineSerializer {
         String command = (type == null || DEFAULT_PREDICATE.equals(type))
                 ? from + " .... !!block?end=" + marker
                 : from + " .." + type + ".. !!block?end=" + marker;
-        List<String> out = new java.util.ArrayList<>(objectLines.size() + 2);
-        out.add(appendMeta(command, meta));
+        List<String> out = new java.util.ArrayList<>(objectLines.size() + 3);
+        // The opener MUST end its physical line: `!!block` is only an opener when
+        // nothing follows it (Parse Spec "block-as-field"). Appending the metadata
+        // here would demote it to ordinary command-shaped text, and the block this
+        // method just built would not read back. Metadata therefore goes on a `,,`
+        // continuation line after the terminator, which is what continues a block
+        // object (Parse Spec "block-continuation").
+        out.add(command);
         out.addAll(objectLines);
         out.add(marker);
+        String metaLine = appendMeta("", meta);
+        if (!metaLine.isEmpty()) out.add(metaLine.stripLeading());
         return out;
     }
 
