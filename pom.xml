@@ -1,0 +1,143 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <!--
+      Standalone on purpose: NO <parent>. A parent POM can contribute <dependencies> to this module, which
+      would silently defeat the zero-dependency guarantee this artifact is built around. Everything this
+      module needs is declared here.
+
+      Coordinates are unchanged from when this lived as a module of ddot.it-javalib, so no downstream POM
+      has to touch its <dependency> element.
+    -->
+    <groupId>com.calpano.ddot.it</groupId>
+    <artifactId>ddot-core</artifactId>
+    <version>1.0-SNAPSHOT</version>
+    <packaging>jar</packaging>
+
+    <name>ddot.it core (zero-dependency)</name>
+    <description>
+        The ddot.it syntax and event model with ZERO third-party dependencies except org.jspecify:jspecify
+        (annotations only): the triple-event and source-location model, the ddot line serializer, the
+        rule/find parsers and the linter.
+
+        This artifact exists so that code can be shared with graphinout's reader-ddot. reader-ddot is a module
+        of the graphinout reactor and already depends on com.graphinout:base; if ddot-core depended on
+        graphinout, reader-ddot -> ddot-core -> graphinout:base would close a build cycle. The dependency ban
+        below is therefore load-bearing, not hygiene.
+    </description>
+
+    <properties>
+        <java.version>21</java.version>
+        <maven.compiler.source>${java.version}</maven.compiler.source>
+        <maven.compiler.target>${java.version}</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+
+        <junit.version>5.14.3</junit.version>
+        <truth.version>1.4.5</truth.version>
+        <jspecify.version>1.0.0</jspecify.version>
+    </properties>
+
+    <dependencies>
+        <!-- THE ONLY compile-scope dependency this module may ever have. -->
+        <dependency>
+            <groupId>org.jspecify</groupId>
+            <artifactId>jspecify</artifactId>
+            <version>${jspecify.version}</version>
+        </dependency>
+
+        <!-- Testing (test scope only; never on a consumer's classpath) -->
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <version>${junit.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.google.truth</groupId>
+            <artifactId>truth</artifactId>
+            <version>${truth.version}</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.5.2</version>
+            </plugin>
+
+            <!--
+              Mechanically enforces "ddot-core depends on jspecify and nothing else".
+
+              Rule 1 (bannedDependencies): bans EVERY compile/runtime/provided/system-scope artifact, then
+              re-allows exactly org.jspecify:jspecify. The 5th segment of the pattern is the scope, so
+              test-scope artifacts (junit, truth and their transitives) are untouched — they never reach a
+              consumer's classpath and so cannot re-introduce the graphinout cycle.
+
+              Rule 2 (banTransitiveDependencies): no transitive dependency may sneak in via a future direct
+              dependency; test-scope trees are excluded for the same reason.
+
+              If either rule fires, the build fails here rather than silently closing the
+              reader-ddot -> ddot-core -> graphinout:base cycle downstream.
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-enforcer-plugin</artifactId>
+                <version>3.5.0</version>
+                <executions>
+                    <execution>
+                        <id>ddot-core-must-stay-dependency-free</id>
+                        <phase>validate</phase>
+                        <goals>
+                            <goal>enforce</goal>
+                        </goals>
+                        <configuration>
+                            <rules>
+                                <bannedDependencies>
+                                    <searchTransitive>true</searchTransitive>
+                                    <message>
+                                        ddot-core must have NO compile/runtime dependency other than
+                                        org.jspecify:jspecify. Anything else (graphinout, jackson, slf4j, ...)
+                                        belongs in ddot-graph.
+                                    </message>
+                                    <excludes>
+                                        <exclude>*:*:*:*:compile</exclude>
+                                        <exclude>*:*:*:*:runtime</exclude>
+                                        <exclude>*:*:*:*:provided</exclude>
+                                        <exclude>*:*:*:*:system</exclude>
+                                    </excludes>
+                                    <includes>
+                                        <include>org.jspecify:jspecify:*:*:compile</include>
+                                    </includes>
+                                </bannedDependencies>
+                                <banTransitiveDependencies>
+                                    <message>
+                                        ddot-core must not acquire transitive compile/runtime dependencies.
+                                    </message>
+                                    <excludes>
+                                        <exclude>*:*:*:*:test</exclude>
+                                    </excludes>
+                                </banTransitiveDependencies>
+                            </rules>
+                            <fail>true</fail>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+
+    <distributionManagement>
+        <repository>
+            <id>github-maven-repo</id>
+            <name>GitHub calpano Apache Maven Packages</name>
+            <url>https://maven.pkg.github.com/calpano/ddot.it-java-core</url>
+        </repository>
+    </distributionManagement>
+
+</project>

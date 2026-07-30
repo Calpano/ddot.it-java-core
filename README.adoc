@@ -1,0 +1,70 @@
+= ddot.it Java core
+Max Völkel <mv@maxvoelkel.de>
+:toc:
+:icons: font
+:url-spec-repo: https://github.com/calpano/ddot.it
+:url-graphinout: https://github.com/calpano/graphinout
+
+`com.calpano.ddot.it:ddot-core:1.0-SNAPSHOT` — the ddot.it syntax and event model as a plain Java 21 jar with essentially no dependencies.
+
+[[what]]
+== What is in here
+
+This artifact holds the part of the ddot.it Java library that is pure syntax and pure data model, with no knowledge of graphs, files, JSON or logging.
+
+.Packages
+* `com.calpano.ddot.it.source` — the source, snippet and source-location model, plus the resource-address abstractions a host application implements to feed ddot.it text in.
+* `com.calpano.ddot.it.kserver` — the triple-event model (`ITripleEvent` and its from-line, from-item, from-source and inferred variants) and the metadata interface.
+* `com.calpano.ddot.it.refactor` — the ddot line serializer, the rewrite-rule model, the rule parser and the `!!find` query parser.
+* `com.calpano.ddot.it.lint` — the linter with its diagnostics, severities and line changes.
+* `com.calpano.ddot.it.annotation` — the `@DdotIt` marker.
+
+Everything that needs a knowledge graph — the Kgraph/Kbase model, the readers, the Connected JSON writer, the query engine — lives one layer up in `ddot-graph`, in the link:../ddot.it-javalib[`ddot.it-javalib`] repository.
+
+[[invariant]]
+== The zero-dependency invariant
+
+`ddot-core` has exactly one compile-scope dependency, `org.jspecify:jspecify`, and that dependency contributes annotations only.
+There are no transitive compile dependencies at all.
+JUnit and Truth are present, but at test scope, so they never reach a consumer's classpath.
+
+The invariant is not a matter of taste, and it is not enforced by discipline.
+`maven-enforcer-plugin` runs in the `validate` phase with two rules: `bannedDependencies` bans every compile, runtime, provided and system-scope artifact and then re-allows exactly `org.jspecify:jspecify`, and `banTransitiveDependencies` stops anything sneaking in behind a future direct dependency.
+Both rules exclude test scope.
+Adding any other compile dependency fails the build immediately, with the message pointing at `ddot-graph` as the place where it belongs.
+
+[[why]]
+== Why the invariant exists
+
+The reason is a build cycle in a different repository.
+
+link:{url-graphinout}[graphinout] has a module `reader-ddot` that parses ddot.it text, and it should not reimplement the parser — it should reuse this code.
+But `reader-ddot` is a module of the graphinout reactor and depends on `com.graphinout:base`.
+So if `ddot-core` depended on graphinout, the chain `reader-ddot -> ddot-core -> com.graphinout:base` would close a cycle and neither reactor could build.
+
+Keeping `ddot-core` free of every third-party jar is what makes it safely consumable from inside graphinout's own reactor.
+That is why the enforcer rules are load-bearing rather than hygiene, and why this repository has a standalone POM with no `<parent>`: a parent could contribute `<dependencies>` and silently break the guarantee.
+
+.Consumers
+* link:{url-graphinout}[graphinout] `reader-ddot` — the reason for the split.
+* link:../ddot.it-javalib[`ddot.it-javalib`] — `ddot-graph` builds the knowledge-graph layer on top; the `ddot.it-javalib` facade artifact re-exports both jars under the historic coordinates.
+* link:../ddot.it-java[`ddot.it-java`] — the command-line tool.
+* link:../ddot.it-intellij[`ddot.it-intellij`] — the IntelliJ plugin.
+
+[[spec]]
+== Where the specification lives
+
+This repository is an implementation, not a specification.
+
+The canonical ddot.it syntax reference, the language documentation and the conformance corpus live in the sibling repository link:{url-spec-repo}[ddot.it], checked out next to this one as `../ddot.it`.
+Its `test-data/cases` directory is the corpus that `ddot-graph`'s `DdotCorpusConformanceTest` runs against; that test is the harness that decides whether an implementation conforms, and it lives with the graph layer because parsing a case end to end needs it.
+
+[[build]]
+== Building
+
+.Commands
+* `mvn install` — compiles, runs the tests and installs `com.calpano.ddot.it:ddot-core:1.0-SNAPSHOT` into the local repository.
+* `mvn dependency:tree` — the check that matters; the compile scope must show `org.jspecify:jspecify` and nothing else.
+
+Java 21 or newer is required.
+The coordinates are deliberately unchanged from when this module lived inside `ddot.it-javalib`, so no downstream POM needs editing.

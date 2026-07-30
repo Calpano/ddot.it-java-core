@@ -1,0 +1,301 @@
+= Rewrite-rule syntax (legacy draft — superseded)
+:icons: font
+:toc:
+:toclevels: 3
+
+[IMPORTANT]
+====
+*Superseded by the `!!find` surface.* The canonical rule language is now
+Position 15 of link:rules-next.adoc[] — one `!!find` grammar for all three
+verbs (query / check / rewrite). It is *implemented*:
+
+* `find.FindParser` — parses `!!find` regions into `find.FindQuery`
+  (`find.MatchElement` + `find.DoVerb`). See `FindParserTest` (mirrors the
+  Q1–Q18 worked examples).
+* `find.FindQuery#toRewriteRule()` — bridges the rewrite verbs
+  (`REPLACE` / `INSERT`) onto the `RewriteRule` engine below, so they execute
+  through the *same* `GraphRewriter`. See `FindRewriteExecutionTest`.
+* `TermParser` — the shared term/triple grammar (`?var`, `?_`,
+  `prefix:$name`, `~`/`=~`, and the new `number()`/`uri()`/`date()` typing
+  functions), used by both `FindParser` and the legacy `RuleParser`.
+
+The `rewrite` / `when` / `remove` / `add` block form and the `=>` arrow sugar
+below remain implemented in `RuleParser` (still green in `RuleParserTest`) as
+*legacy Level-1 input*, but new rules should use `!!find`. This file is kept
+for the API mapping and the engine-semantics reference; the surface-syntax
+sections are historical.
+
+*For the current language, read the consolidated reference*
+link:../../../../../../../../../ddot.it-javalib/ddot-rules.adoc[`ddot-rules.adoc`] (sibling repo `ddot.it-javalib`) — the
+`!!find` grammar, verbs, and the progressive ladder in one place — and the design
+rationale in link:rules-next.adoc[].
+====
+
+DRAFT surface syntax for refactoring rules — the thing that compiles to a
+`RewriteRule` (`refactor` package) and drives `GraphRewriter` + write-back.
+
+== Prior art: reuse the `ddot check` template language
+
+The app already designed a SPARQL-shaped, ddot-native query/assertion language —
+`ddot.it-java/src/main/java/com/calpano/ddot/it/ui/cli/ddot-check.adoc` ("Level 1:
+the ddot.it query template language"). It has `shape` / `when` / `must` / `not` /
+`filter`, terms `?var` / `?_` / `prefix*` / const / `ddot.it/this`, and an EBNF.
+
+*`check` asserts; `rewrite` transforms.* They should share the **same `when`
+condition grammar and term grammar** (one parser, two verbs). This draft adds only
+the *action* side (`remove` / `deprecate` / `add`) and the capture/template terms
+the check language does not need.
+
+Design principles carry over verbatim: ddot-native `S .. P .. O`, assertion/action
+first, universally quantified `when`, closed-world, provenance-first, progressive.
+
+== The rewrite shape
+
+[source]
+----
+rewrite PromoteOnline            # optional name (used in messages / preview)
+when                             # condition: a join of patterns; the FIRST is primary
+  tool:$foo ..online.. yes       #   primary/target pattern
+remove                           # DELETE the matched primary triple (see removal modes)
+add                              # add new triples, reusing bound vars/captures
+  tool:$foo ..has type.. online tool
+----
+
+* `when` — one or more patterns, ANDed with shared bindings. The first is the
+  *primary* (its triple is what `remove`/`deprecate` acts on); the rest are *guards*.
+* removal verb — one of `remove` / `deprecate` / (omitted = keep). Maps to
+  `RewriteRule.RemovalMode`.
+* `add` — zero or more triple templates. Structurally de-duplicated on apply.
+* `filter` — zero or more post-binding constraints on bound variables (see <<filters>>).
+* directives — `placement next-to-primary|end-of-file`, `name`, `message` (later).
+
+== Terms
+
+Reuses `ddot-check` terms and adds capture + template:
+
+[cols="1,2,2",options="header"]
+|===
+| Term | Meaning | API
+
+| const `gio:Format`  | exact id | `MatchTerm.literal` / `OutTerm.constant`
+| `?name`             | whole-term variable (binds the entire s/p/o) | `MatchTerm.var("name")` / `OutTerm.varRef`
+| `?_`                | anonymous "any", never bound/reported | `MatchTerm.any()`
+| `prefix:$name`      | literal `prefix:` + capture the remainder as `$name` | `MatchTerm.var(regex("prefix:(?<name>.*)"))`
+| `prefix:$name` (out)| reconstruct `prefix:` + bound `$name` | `OutTerm.template("prefix:${name}")`
+| `?s ~ "tool:*"`     | glob / `filter` constraint (sugar) | `MatchTerm.var("s", prefix("tool:"))`
+| `?s =~ /re/`        | regex constraint, named groups capture | `StringMatcher.regex`
+| `ddot.it/this`      | current resource URI | as in ddot.it
+|===
+
+`prefix:$name` is exactly the user's `tool:$foo`: a literal namespace plus a captured
+tail, usable on both sides (match captures it, add rebuilds it). It desugars to a
+named-group regex on the `when` side and an output template on the `add` side.
+
+[[filters]]
+== Filters (post-binding value constraints) [IMPLEMENTED]
+
+A `filter` line constrains a variable *after* the join binds it — for value checks
+that aren't a term shape. Implemented so far: string *length* and *character count*.
+
+[source]
+----
+rewrite
+when   ?s ..name.. ?o
+filter len(?o) >= 5             # keep only names of length ≥ 5
+add    ?s ..has type.. long-name
+----
+[source]
+----
+rewrite
+when   ?s ..csv.. ?o
+filter count(?o, ",") == 2      # exactly two commas → three fields
+add    ?s ..has type.. triple-field
+----
+
+[cols="1,2",options="header"]
+|===
+| Filter | API
+
+| `len(?v) OP n`         | `StringMatcher.length(min, max)` (a bound variable)
+| `count(?v, "c") OP n`  | `StringMatcher.count('c', min, max)`
+|===
+
+`OP` is one of `>=` `>` `<=` `<` `==` `=`; it maps to an inclusive `[min, max]`
+range. A filter whose variable is unbound fails the match. The engine drops any
+join solution failing a filter before applying effects (`GraphRewriter`).
+
+== Worked examples (the requested use cases)
+
+.UC-1 — promote a boolean attribute to a type (in-place rename)
+[source]
+----
+rewrite
+when   tool:$foo ..online.. yes
+remove
+add    tool:$foo ..has type.. online tool
+----
+
+.UC-2 — assert a type for a whole namespace (string-match on a var, deduped)
+[source]
+----
+rewrite
+when   tool:$foo ..?p.. ?o        # any predicate/object under tool:
+add    tool:$foo ..has type.. tool # add-only (no remove) → keeps the data
+----
+
+.UC-4 — scoped relation rename (multi-pattern join / guard)
+[source]
+----
+rewrite
+when   ?s ..name.. ?o             # primary
+when   ?s ..has type.. Person     # guard (never removed)
+remove
+add    ?s ..full name.. ?o
+----
+
+.UC-7 — namespace migration (regex capture + template)
+[source]
+----
+rewrite
+when   tool:$rest ..?p.. ?o
+remove
+add    app:$rest ..?p.. ?o
+----
+
+.Deprecate instead of delete
+[source]
+----
+rewrite
+when   tool:$foo ..online.. yes
+deprecate                          # keep the old line, mark ,, ..status.. deprecated
+add    tool:$foo ..has type.. online tool
+----
+
+.Delete by pattern; placement override
+[source]
+----
+rewrite
+when   ?s ..deprecated.. yes
+remove                             # no add → pure deletion
+----
+[source]
+----
+rewrite
+when   tool:$foo ..?p.. ?o
+add    tool:$foo ..has type.. tool
+placement end-of-file              # append instead of insert next to the match
+----
+
+== Arrow sugar (single line, common cases)
+
+For the frequent one-pattern cases, an inline arrow avoids the block:
+
+[cols="1,3",options="header"]
+|===
+| Sugar | Desugars to
+
+| `?s ..knows.. ?o  =>  ?s ..is friend of.. ?o`   | `when` primary + `remove` + `add` right (a rename)
+| `+ tool:$foo ..?p.. ?o  =>  tool:$foo ..has type.. tool` | `when` + `add` right, *no* remove (leading `+` = assert/add-only)
+| `- ?s ..deprecated.. yes`                        | `when` + `remove`, no add (leading `-` = delete)
+|===
+
+NOTE: the plain `=>` *replaces* (remove+add); the `+`-prefixed `=>` *asserts*
+(add-only). This resolves the ambiguity in the original examples where UC-2's `==>`
+must NOT delete the tool's other data. Final arrow spelling is an open question.
+
+== Grammar (EBNF, draft — extends ddot-check Level 1)
+
+----
+ruleset   = { rewrite | arrow } ;
+rewrite   = "rewrite" [ name ] NL
+            "when" NL pattern { NL pattern }
+            [ ("remove" | "deprecate") NL ]
+            [ "add" NL template { NL template } ]
+            { "filter" filter NL }
+            { directive NL } ;
+arrow     = [ "+" | "-" ] pattern [ "=>" template ] ;   (* one-line sugar *)
+pattern   = term ".." term ".." term ;                  (* condition: match terms *)
+template  = term ".." term ".." term ;                  (* action: output terms  *)
+term      = const | var | anon | capture | constrained ;
+var       = "?" NAME ;
+anon      = "?_" ;
+capture   = IDENT ":" "$" NAME ;                        (* prefix + captured tail *)
+constrained = var ( "~" GLOB | "=~" REGEX ) ;
+filter    = ( "len" "(" var ")" | "count" "(" var "," CHAR ")" ) OP INT ;
+OP        = ">=" | ">" | "<=" | "<" | "==" | "=" ;
+directive = "placement" ("next-to-primary" | "end-of-file")
+          | "name" STRING | "message" STRING ;
+----
+
+== Mapping to the API
+
+[cols="1,2",options="header"]
+|===
+| Syntax | `refactor` API
+
+| `rewrite … when … / remove / add …` | `RewriteRule(match, removalMode, addPlacement, add)`
+| multiple `when` lines               | `List<TriplePattern>` (first = primary)
+| `remove` / `deprecate` / (none)     | `RemovalMode.DELETE` / `DEPRECATE` / `KEEP`
+| `placement end-of-file`             | `Placement.END_OF_FILE` (`withPlacement`)
+| a `when`/`add` term                 | `MatchTerm` / `OutTerm` (+ `StringMatcher`)
+| `prefix:$name`                      | `MatchTerm.var(regex("prefix:(?<name>.*)"))` ↔ `OutTerm.template("prefix:${name}")`
+|===
+
+Both parsers produce `RewriteRule`s: the legacy `RuleParser` from the block/arrow
+form above, and `find.FindQuery#toRewriteRule()` from a `!!find` `REPLACE`/`INSERT`
+region (see link:rules-next.adoc[] "Rewrite: the REPLACE verb"). The `!!find`
+mapping is:
+
+[cols="1,2",options="header"]
+|===
+| `!!find` construct | `refactor` API
+
+| top-level patterns              | `match` (`List<TriplePattern>`; first = primary)
+| `FILTER EXISTS { … }`           | extra guard patterns appended to `match` (never removed)
+| `FILTER len(?v)…` / `count(…)`  | `RewriteRule.Filter` (via `RuleParser.tryValueFilter`)
+| `REPLACE`                       | `RemovalMode.DELETE` (or `DEPRECATE` with `?mode=deprecate`)
+| `INSERT`                        | `RemovalMode.KEEP`
+| `?placement=end-of-file`        | `Placement.END_OF_FILE`
+| a `REPLACE`/`INSERT` template   | `add` (`List<TripleTemplate>`)
+|===
+
+Constructs the single-primary engine can't run (a query verb, `FILTER NOT EXISTS`
+/ `OPTIONAL` / `UNION` / `BIND`, `,,` metadata match, or a non-value `FILTER`)
+throw `UnsupportedOperationException` from `toRewriteRule()` — they parse fine but
+need a query evaluator this lib does not ship.
+
+Either way, `GraphRewriter.apply(graph, rule)` / `plan(graph, rule)` +
+`LineBasedSourceWriter` (→ later the layered writer, `TODO-write-back.adoc`) apply
+them.
+
+== Semantics (inherited from the engine)
+
+Snapshot-then-apply (a rule never sees its own additions); add dedup; provenance
+carry-over to added triples; join guards never removed; in-place rename when a
+`DELETE` add shares the primary subject and placement is next-to-primary.
+
+== Open questions
+
+. [RESOLVED] *Arrow spelling* — dissolved by the `!!find` surface: the verb-last
+  `REPLACE`/`INSERT` form is canonical; no arrow. The `=>` sugar survives only in the
+  legacy `RuleParser`.
+. [RESOLVED] *One parser with `check`* — the shared grammar is factored into
+  `TermParser` (terms/triple split) and the `!!find` line grammar is the single
+  surface for query / check / rewrite. The `check` verb is `FILTER NOT EXISTS`
+  (Q7); it parses today, though this lib ships no assertion evaluator yet.
+. *`filter` / value constraints* — `len(?v)`/`count(?v,"c")` execute (post-binding,
+  now also reachable as `!!find` `FILTER`). `number()`/`uri()`/`date()` typing
+  functions parse as pattern-term constraints (`TermParser`). Still open: general
+  `FILTER` comparisons (need value coercion), `matches`/`in`/`is-uri`, and
+  extension/`add`-side functions (a host-function registry — parse-only today).
+. *Multiple `add` templates & ordering* — allowed; dedup covers repeats. Do we need
+  ordered/conditional adds?
+. *Rule files & CLI* — `ddot rewrite <dir> --rules r.ddotrules [--dry-run|--apply]`,
+  mirroring `ddot check`. Dry-run prints the write-back preview. `!!find` regions are
+  the rule-file content; honor them only from explicit `--rules` sources
+  (rules-next.adoc ISSUE 3).
+. *Query / check execution* — `toRewriteRule()` runs the rewrite verbs; a
+  `SELECT`/`ASK`/`CONSTRUCT` evaluator and the `WARN`/`LAYOUT` write-back directives
+  (rules-next.adoc Q16–Q18) are represented in `find.DoVerb` but not yet executed.
+. *Rule libraries / import* — as in `ddot-check` COULD list (`import`, parameterised
+  shapes).
