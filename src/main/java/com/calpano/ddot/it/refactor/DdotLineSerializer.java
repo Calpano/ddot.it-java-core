@@ -14,11 +14,11 @@ import java.util.List;
  * <ul>
  *   <li>predicate {@code null} or {@value #DEFAULT_PREDICATE} → untyped {@code from .... to}</li>
  *   <li>otherwise typed {@code from ..predicate.. to}</li>
- *   <li>metadata → a trailing {@code ,, ..key.. value}</li>
+ *   <li>metadata → a trailing {@code ,, ..key.. value}, further pairs separated by {@code ;;}</li>
  * </ul>
  *
- * <p>Limitation: the parser reads only one {@code ,,} pair per line, so only the first metadata entry is
- * emitted (extra keys are dropped).
+ * <p>Everything this class writes must parse back to what it was given; that is asserted directly, against
+ * this artifact's own {@code DdotEventExporter}, by {@code DdotLineSerializerRoundTripTest}.
  */
 public final class DdotLineSerializer {
 
@@ -69,27 +69,32 @@ public final class DdotLineSerializer {
         return marker;
     }
 
+    /**
+     * Append every metadata pair, in {@link IMeta#keys()} order: the first opens the metadata with
+     * {@code ,,}, each further pair is introduced by {@code ;;}.
+     *
+     * <p>The {@code ;;} matters. A second {@code ,,} on the same line is <em>not</em> a delimiter — only the
+     * first one is, the rest is ordinary text (Parse Spec: {@code CM2} is consumed only in the Object phase)
+     * — which is why this method used to emit just {@code keys().getFirst()} and silently drop the rest.
+     * {@code ;;} is the spec'd inline separator for further pairs (Parse Spec {@code MetaNextInline}, corpus
+     * case {@code 22-inline-meta-separator}), so all of them now survive the round trip.
+     */
     private static String appendMeta(String line, @Nullable IMeta meta) {
         if (meta == null || meta.keys().isEmpty()) return line;
-        String k = meta.keys().getFirst();
-        return line + " ,, .." + k + ".. " + meta.get(k);
+        StringBuilder sb = new StringBuilder(line);
+        List<String> keys = meta.keys();
+        for (int i = 0; i < keys.size(); i++) {
+            String k = keys.get(i);
+            sb.append(i == 0 ? " ,, .." : " ;; ..").append(k).append(".. ").append(meta.get(k));
+        }
+        return sb.toString();
     }
 
     public static String serialize(String from, @Nullable String type, String to, @Nullable IMeta meta) {
-        StringBuilder sb = new StringBuilder();
-        if (type == null || DEFAULT_PREDICATE.equals(type)) {
-            sb.append(from).append(" .... ").append(to);
-        } else {
-            sb.append(from).append(" ..").append(type).append(".. ").append(to);
-        }
-        if (meta != null) {
-            List<String> keys = meta.keys();
-            if (!keys.isEmpty()) {
-                String k = keys.getFirst();
-                sb.append(" ,, ..").append(k).append(".. ").append(meta.get(k));
-            }
-        }
-        return sb.toString();
+        String line = (type == null || DEFAULT_PREDICATE.equals(type))
+                ? from + " .... " + to
+                : from + " .." + type + ".. " + to;
+        return appendMeta(line, meta);
     }
 
 }

@@ -5,6 +5,7 @@ import com.calpano.ddot.it.event.DdotEventExporter;
 import com.calpano.ddot.it.kserver.base.IMeta;
 import org.junit.jupiter.api.Test;
 
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -20,6 +21,14 @@ import static com.google.common.truth.Truth.assertThat;
  * {@code "!!block?end=END"} object.
  */
 class DdotLineSerializerRoundTripTest {
+
+    /** Two pairs in a defined order, so the emitted `;;` separator is assertable. */
+    private static IMeta sinceUntil() {
+        LinkedHashMap<String, String> m = new LinkedHashMap<>();
+        m.put("since", "2016");
+        m.put("until", "2020");
+        return IMeta.of(m);
+    }
 
     private static List<DdotEvent> parse(List<String> lines) {
         return DdotEventExporter.parse(String.join("\n", lines) + "\n", "ddot", "t.ddot");
@@ -57,6 +66,41 @@ class DdotLineSerializerRoundTripTest {
         List<String> lines = DdotLineSerializer.serializeLines(
                 "john", "address", "Broadway 1\nBerlin", IMeta.of(Map.of("since", "2016")));
         assertThat(lines.getFirst()).endsWith("!!block?end=END");
+    }
+
+    /**
+     * Every metadata pair must survive, not just the first. A second {@code ,,} on a line is ordinary text,
+     * so further pairs need {@code ;;} (corpus {@code 22-inline-meta-separator}); emitting a second
+     * {@code ,,} — or dropping the pair, as this class used to — loses data.
+     */
+    @Test
+    void severalMetadataPairsRoundTrip() {
+        List<String> lines = DdotLineSerializer.serializeLines("a", "note", "b", sinceUntil());
+
+        assertThat(lines).hasSize(1);
+        assertThat(lines.getFirst()).isEqualTo("a ..note.. b ,, ..since.. 2016 ;; ..until.. 2020");
+
+        List<DdotEvent> events = parse(lines);
+        assertThat(events).hasSize(1);
+        assertThat(events.getFirst().meta).hasSize(2);
+        assertThat(events.getFirst().meta.get(0).type()).isEqualTo("since");
+        assertThat(events.getFirst().meta.get(0).to()).isEqualTo("2016");
+        assertThat(events.getFirst().meta.get(1).type()).isEqualTo("until");
+        assertThat(events.getFirst().meta.get(1).to()).isEqualTo("2020");
+    }
+
+    /** The same, on the {@code ,,} continuation line that carries a block object's metadata. */
+    @Test
+    void severalMetadataPairsAfterABlockRoundTrip() {
+        List<String> lines = DdotLineSerializer.serializeLines("john", "address", "Broadway 1\nBerlin", sinceUntil());
+
+        assertThat(lines.getFirst()).endsWith("!!block?end=END");
+        assertThat(lines.getLast()).isEqualTo(",, ..since.. 2016 ;; ..until.. 2020");
+
+        List<DdotEvent> events = parse(lines);
+        assertThat(events).hasSize(1);
+        assertThat(events.getFirst().to).isEqualTo("Broadway 1\nBerlin");
+        assertThat(events.getFirst().meta).hasSize(2);
     }
 
     @Test
