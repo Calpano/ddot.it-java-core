@@ -12,9 +12,16 @@
       Coordinates are unchanged from when this lived as a module of ddot.it-javalib, so no downstream POM
       has to touch its <dependency> element.
     -->
+    <!--
+      BUMP THIS ON EVERY CONTENT CHANGE. This is a release version, not a SNAPSHOT, so Maven caches it
+      forever: consumers resolve it from the local repository and never re-check. 0.1.0 was published as
+      "released" and then had its contents changed twice in place, which left three sibling repositories
+      compiling against whichever 0.1.0 jar their ~/.m2 happened to hold. Changing the code without
+      changing this number reintroduces exactly that.
+    -->
     <groupId>com.calpano.ddot.it</groupId>
     <artifactId>ddot-core</artifactId>
-    <version>0.1.0</version>
+    <version>0.1.1</version>
     <packaging>jar</packaging>
 
     <name>ddot.it core (zero-dependency)</name>
