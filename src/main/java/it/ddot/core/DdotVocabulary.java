@@ -1,4 +1,4 @@
-package com.calpano.ddot.it.core;
+package it.ddot.core;
 
 public class DdotVocabulary {
 

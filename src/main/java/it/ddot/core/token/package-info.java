@@ -6,16 +6,9 @@
  * <em>canonical highlighter token stream</em> — a flat list of {@code {line, start, end, token, text}} —
  * defined by the cross-implementation corpus in the {@code ddot.it} repo
  * ({@code test-data/cases/&#42;/expected.tokens.json}) and generated canonically by the TextMate grammar in
- * {@code ddot.it-syntax-tools}. Every other ddot.it consumer of source text (the event exporter in
- * {@link com.calpano.ddot.it.core.event}, editor highlighting, completion, indexing) is a fold over this stream
- * rather than a parser of its own, so the corpus pins them all at once.
- *
- * <p>{@link DdotSlots} is the coarser five-slot view of the same vocabulary
- * (s / p / o / mr / mo) used by completion and by structure/PSI layers.
- *
- * <p>Everything here is a pure function of a {@code String}: no I/O, no platform, no third-party types.
+ * {@code ddot.it-syntax-tools}.
  */
 @NullMarked
-package com.calpano.ddot.it.core.token;
+package it.ddot.core.token;
 
 import org.jspecify.annotations.NullMarked;

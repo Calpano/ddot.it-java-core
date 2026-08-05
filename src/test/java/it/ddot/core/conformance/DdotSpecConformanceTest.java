@@ -43,7 +43,7 @@ final class DdotSpecConformanceTest {
         assertTrue(ofType(toks, TokenName.COMMAND).isEmpty(), "no command token for !!!off: " + toks);
         // The line after `!!!off` is NOT excluded — it parses normally.
         assertTrue(toks.stream().anyMatch(
-                t -> t.line() == 2 && t.tokenName().name().equals("subject") && t.text().equals("C")));
+                t -> t.line() == 2 && t.tokenName() == TokenName.SUBJECT && t.text().equals("C")));
         assertTrue(ofType(toks, TokenName.EXCLUDED).isEmpty());
     }
 
@@ -52,10 +52,10 @@ final class DdotSpecConformanceTest {
         List<Token> toks = tok("!!off\nhidden ..x.. y\n!!!on\nstill ..x.. y\n!!on\nback ..p.. o");
         // `!!!on` stays excluded content; only the real `!!on` closes.
         assertTrue(toks.stream().anyMatch(
-                t -> t.line() == 2 && t.tokenName().name().equals("excluded") && t.text().equals("!!!on")));
-        assertTrue(toks.stream().anyMatch(t -> t.line() == 3 && t.tokenName().name().equals("excluded")));
+                t -> t.line() == 2 && t.tokenName() == TokenName.EXCLUDED && t.text().equals("!!!on")));
+        assertTrue(toks.stream().anyMatch(t -> t.line() == 3 && t.tokenName() == TokenName.EXCLUDED));
         assertTrue(toks.stream().anyMatch(
-                t -> t.line() == 5 && t.tokenName().name().equals("subject") && t.text().equals("back")));
+                t -> t.line() == 5 && t.tokenName() == TokenName.SUBJECT && t.text().equals("back")));
     }
 
     @Test
@@ -165,7 +165,7 @@ final class DdotSpecConformanceTest {
         assertTrue(toks.stream().anyMatch(
                 t -> t.line() == 4 && t.tokenName().equals(TokenName.RELATION) && t.text().equals("x")));
         assertTrue(toks.stream().noneMatch(
-                t -> t.line() == 4 && t.tokenName().name().startsWith("meta-")));
+                t -> t.line() == 4 && t.tokenName().id.startsWith("meta-")));
     }
 
     // --- `!!block` opener positions ------------------------------------------
@@ -176,9 +176,9 @@ final class DdotSpecConformanceTest {
         // Not an opener: no verbatim region; it is command-shaped slot text.
         assertTrue(ofType(toks, TokenName.VERBATIM).isEmpty());
         assertTrue(toks.stream().anyMatch(
-                t -> t.line() == 0 && t.tokenName().name().equals("command") && t.text().equals("!!block")));
+                t -> t.line() == 0 && t.tokenName() == TokenName.COMMAND && t.text().equals("!!block")));
         assertTrue(toks.stream().anyMatch(
-                t -> t.line() == 1 && t.tokenName().name().equals("subject") && t.text().equals("next")));
+                t -> t.line() == 1 && t.tokenName() == TokenName.SUBJECT && t.text().equals("next")));
     }
 
     @Test

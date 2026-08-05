@@ -1,14 +1,18 @@
 package it.ddot.core.source;
 
-import java.util.List;
 
-/** A multi-line block object; its ddot serialization (command + content + marker) is verbatim in the source. */
-public record BlockSnippet(int startLine, int endLine) implements ISnippet {
+import it.ddot.core.DdotSourceFormats;
 
-    @Override
-    public boolean writable() {return true;}
+/**
+ * @param sourceKindId The host format the reader read, as a short lowercase name. See {@link DdotSourceFormats}.
+ * @param sourceLocation  The chunk's source URI, verbatim — e.g. {@code /README.md} or
+ *                   {@code file:///Users/me/example.adoc}. This is the value {@code !!this} stands for, though the
+ *                   substitution happens in the collector, not here.
+ */
+public record Snippet(
+        String sourceKindId,
+        ISourceLocation sourceLocation
+) implements ISnippet {
 
-    @Override
-    public List<String> decorate(List<String> ddotLines) {return ddotLines;}
 
 }

@@ -1,4 +1,4 @@
-package com.calpano.ddot.it.core.lint;
+package it.ddot.core.lint;
 
 /**
  * A single linting finding on one source line: the rule that fired ({@code DL0xx}), its {@link Severity}, the

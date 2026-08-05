@@ -1,4 +1,4 @@
-package com.calpano.ddot.it.core.lint;
+package it.ddot.core.lint;
 
 import java.util.List;
 

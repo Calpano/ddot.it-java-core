@@ -1,7 +1,9 @@
 package it.ddot.core.io;
 
+import it.ddot.core.DdotVocabulary;
 import it.ddot.core.event.DdotEvent;
 import it.ddot.core.token.DdotTokenizer;
+import org.jspecify.annotations.NonNull;
 
 import java.util.List;
 
@@ -31,14 +33,14 @@ public final class DdotEventExporter {
 
     private DdotEventExporter() {}
 
-    private static void appendField(StringBuilder b, String key, String value, boolean leadingComma) {
+    private static void appendField(StringBuilder b, @NonNull String key, @NonNull String value, boolean leadingComma) {
         if (leadingComma) b.append(',');
         b.append('"').append(key).append("\":\"").append(escapeJson(value)).append('"');
     }
 
     // --- line reconstruction ------------------------------------------------
 
-    private static String escapeJson(String s) {
+    private static String escapeJson(@NonNull String s) {
         StringBuilder out = new StringBuilder(s.length() + 2);
         for (int i = 0; i < s.length(); i++) {
             char c = s.charAt(i);
@@ -66,8 +68,12 @@ public final class DdotEventExporter {
 
 
     /**
-     * Field order matches the spec: from, type?, to, meta?, kind, source, location. Hand-written to keep the output
+     * Field order matches the spec: from, type, to, meta?, kind, source, location. Hand-written to keep the output
      * deterministic and dependency-free.
+     *
+     * <p>{@code type} is always written, never omitted: a triple has all three of subject, relation and object, and an
+     * untyped {@code ....} link carries {@link DdotVocabulary#LINKS_TO} explicitly rather than leaving the consumer to
+     * default a missing field (Parse Spec, Triple Events).
      */
     private static String toJson(DdotEvent event) {
         StringBuilder b = new StringBuilder();
@@ -88,7 +94,9 @@ public final class DdotEventExporter {
         }
         appendField(b, "kind", event.sourceKind(), true);
         appendField(b, "source", event.sourceUri(), true);
-        b.append(',').append('"').append("location").append("\":").append(event.locationStartLine);
+        // The spec's `location` is a line in the source file, so it is the resource line — for a whole-file snippet
+        // that equals startLineInSnippet, but not for an event inside a lifted chunk.
+        b.append(',').append('"').append("location").append("\":").append(event.startLineInResource());
         b.append('}');
         return b.toString();
     }

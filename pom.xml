@@ -8,32 +8,16 @@
       Standalone on purpose: NO <parent>. A parent POM can contribute <dependencies> to this module, which
       would silently defeat the zero-dependency guarantee this artifact is built around. Everything this
       module needs is declared here.
-
-      Coordinates are unchanged from when this lived as a module of ddot.it-javalib, so no downstream POM
-      has to touch its <dependency> element.
     -->
-    <!--
-      BUMP THIS ON EVERY CONTENT CHANGE. This is a release version, not a SNAPSHOT, so Maven caches it
-      forever: consumers resolve it from the local repository and never re-check. 0.1.0 was published as
-      "released" and then had its contents changed twice in place, which left three sibling repositories
-      compiling against whichever 0.1.0 jar their ~/.m2 happened to hold. Changing the code without
-      changing this number reintroduces exactly that.
-    -->
-    <groupId>com.calpano.ddot.it</groupId>
-    <artifactId>ddot-core</artifactId>
-    <version>0.1.1</version>
+    <groupId>it.ddot</groupId>
+    <artifactId>ddotit-core</artifactId>
+    <version>0.2.0</version>
     <packaging>jar</packaging>
 
-    <name>ddot.it core (zero-dependency)</name>
+    <name>ddot.it core</name>
     <description>
         The ddot.it syntax and event model with ZERO third-party dependencies except org.jspecify:jspecify
-        (annotations only): the triple-event and source-location model, the ddot line serializer, the
-        rule/find parsers and the linter.
-
-        This artifact exists so that code can be shared with graphinout's reader-ddot. reader-ddot is a module
-        of the graphinout reactor and already depends on com.graphinout:base; if ddot-core depended on
-        graphinout, reader-ddot -> ddot-core -> graphinout:base would close a build cycle. The dependency ban
-        below is therefore load-bearing, not hygiene.
+        (annotations only).
     </description>
 
     <properties>
@@ -110,7 +94,7 @@
                                     <message>
                                         ddot-core must have NO compile/runtime dependency other than
                                         org.jspecify:jspecify. Anything else (graphinout, jackson, slf4j, ...)
-                                        belongs in ddot-graph.
+                                        belongs in ddotit-javalib.
                                     </message>
                                     <excludes>
                                         <exclude>*:*:*:*:compile</exclude>

@@ -1,4 +1,4 @@
-package com.calpano.ddot.it.core.lint;
+package it.ddot.core.lint;
 
 /**
  * A single line the linter reformats to canonical form: its 1-based {@code lineNumber}, the {@code original}

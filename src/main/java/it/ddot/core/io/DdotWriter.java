@@ -2,13 +2,14 @@ package it.ddot.core.io;
 
 import it.ddot.core.DdotVocabulary;
 import it.ddot.core.event.IMeta;
+import it.ddot.core.event.IMetaPair;
 import it.ddot.core.token.Markers;
 import it.ddot.core.token.PreCommand;
 import org.jspecify.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Set;
+import java.util.Objects;
 
 import static it.ddot.core.token.Markers.DT2_SPACE;
 import static it.ddot.core.token.Markers.SPACE_DT2;
@@ -21,7 +22,8 @@ import static it.ddot.core.token.Markers.SPACE_DT4_SPACE;
  * <p>Emitted in the canonical ddot form — the {@code ..} hugs the relation, with a single space separating
  * subject and object from the dot-clusters (as in {@code Project Eagle ..started in.. 2024}):
  * <ul>
- *   <li>predicate {@code null} or {@value DdotVocabulary#LINKS_TO} → untyped {@code from .... to}</li>
+ *   <li>predicate {@value DdotVocabulary#LINKS_TO} → untyped {@code from .... to}. That constant is the only way to
+ *       ask for the untyped form; a {@code null} predicate is rejected, not silently treated as untyped</li>
  *   <li>otherwise typed {@code from ..predicate.. to}</li>
  *   <li>metadata → a trailing {@code ,, ..key.. value}, further pairs separated by {@code ;;}</li>
  * </ul>
@@ -34,27 +36,28 @@ public final class DdotWriter {
     private DdotWriter() {}
 
     /**
-     * Append every metadata pair, in {@link IMeta#keys()} order: the first opens the metadata with {@code ,,}, each
-     * further pair is introduced by {@code ;;}.
+     * Append every metadata pair, in written order: the first opens the metadata with {@code ,,}, each further pair is
+     * introduced by {@code ;;}.
      *
      * <p>The {@code ;;} matters. A second {@code ,,} on the same line is <em>not</em> a delimiter — only the
      * first one is, the rest is ordinary text (Parse Spec: {@code CM2} is consumed only in the Object phase) — which is
      * why this method used to emit just {@code keys().getFirst()} and silently drop the rest. {@code ;;} is the spec'd
      * inline separator for further pairs (Parse Spec {@code MetaNextInline}, corpus case
      * {@code 22-inline-meta-separator}), so all of them now survive the round trip.
+     *
+     * <p>It walks {@link IMeta#pairs()}, not {@link IMeta#keys()}: keys are distinct, so a relation written twice
+     * ({@code ,, ..author.. Ann ;; ..author.. Bob}) would have been written back once.
      */
     private static String appendMeta(String line, @Nullable IMeta meta) {
-        if (meta == null || meta.keys().isEmpty()) return line;
+        if (meta == null || meta.isEmpty()) return line;
         StringBuilder sb = new StringBuilder(line);
 
-        Set<String> keys = meta.keys();
-        int i = 0;
-        for (String k : keys) {
+        List<IMetaPair> pairs = meta.pairs();
+        for (int i = 0; i < pairs.size(); i++) {
             sb.append(i == 0 ? //
                     " " + Markers.CM2 + " " + Markers.DT2 : //
                     " " + Markers.SC2 //
-                            + SPACE_DT2).append(k).append(DT2_SPACE).append(meta.get(k));
-            i++;
+                            + SPACE_DT2).append(pairs.get(i).type()).append(DT2_SPACE).append(pairs.get(i).to());
         }
         return sb.toString();
     }
@@ -68,7 +71,7 @@ public final class DdotWriter {
         return marker;
     }
 
-    public static String serialize(String from, @Nullable String type, String to) {
+    public static String serialize(String from, String type, String to) {
         return serialize(from, type, to, null);
     }
 
@@ -104,6 +107,8 @@ public final class DdotWriter {
     }
 
     private static String spaceRelation(String relationType) {
+        Objects.requireNonNull(relationType, //
+                "relation must not be null; write DdotVocabulary.LINKS_TO for an untyped link");
         return DdotVocabulary.LINKS_TO.equals(relationType) ? //
                 SPACE_DT4_SPACE : SPACE_DT2 + relationType + DT2_SPACE;
     }

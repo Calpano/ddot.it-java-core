@@ -1,4 +1,4 @@
-package com.calpano.ddot.it.core.annotation;
+package it.ddot.core.annotation;
 
 import java.lang.annotation.ElementType;
 import java.lang.annotation.Retention;

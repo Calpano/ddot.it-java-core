@@ -1,6 +1,6 @@
 package it.ddot.core.io;
 
-import it.ddot.core.DdotSourceKinds;
+import it.ddot.core.DdotSourceFormats;
 import it.ddot.core.event.DdotEvent;
 import it.ddot.core.event.IMeta;
 import org.junit.jupiter.api.Test;
@@ -31,7 +31,7 @@ class DdotWriterRoundTripTest {
     }
 
     private static List<DdotEvent> parse(List<String> lines) {
-        return DdotParser.parse(String.join("\n", lines) + "\n", DdotSourceKinds.DDOT, "t.ddot");
+        return DdotParser.parse(String.join("\n", lines) + "\n", DdotSourceFormats.DDOT.sourceFormatId(), "t.ddot");
     }
 
     @Test

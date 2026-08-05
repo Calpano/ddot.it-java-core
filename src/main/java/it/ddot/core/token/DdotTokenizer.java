@@ -1,9 +1,6 @@
-package com.calpano.ddot.it.core.token;
+package it.ddot.core.token;
 
 import it.ddot.core.DdotSlot;
-import it.ddot.core.token.Token;
-import it.ddot.core.token.TokenName;
-import it.ddot.core.token.Tokens;
 import org.jspecify.annotations.Nullable;
 
 import java.util.ArrayList;
@@ -41,86 +38,31 @@ public final class DdotTokenizer {
     private static final class BlockState {
 
         boolean opensBlock, opensMetaBlock, notATriple;
-        String blockEnd;
+        @Nullable String blockEnd;
 
     }
 
-    /**
-     * WS per the Parse Spec: TAB plus any Unicode <em>space separator</em> (category {@code Zs}), i.e.
-     * {@code [\t\p{Zs}]}. NBSP and friends are `Zs` and separate slots exactly like a space; U+200B and U+FEFF are
-     * `Cf`, not `Zs`, so they stay inside the name that contains them. Java's own {@code \s}, {@code trim()} and
-     * {@code Character.isWhitespace} all get this wrong — the first two are ASCII-only and the third excludes the
-     * no-break spaces — so neither is used for slot boundaries.
-     */
-    private static final String WS = "[\\t\\p{Zs}]";
 
     private static final String DT2_SRC = "(?<!\\.)\\.{2}(?!\\.)";
-    private static final String QUAD_SRC = "(?<!\\.)(?:\\.{4}|\\.{2}" + WS + "+\\.{2})(?!\\.)";
-    private static final String CM2_SRC = "(?<!,),,(?!,)";
-    private static final String SC2_SRC = "(?<!;);;(?!;)";
-
-    // A command needs the slash and a non-empty name; bare `ddot.it` is not one.
-    // `?` and `#` do not terminate a command; they introduce its query/fragment.
-    // The `!!` spelling is an EM2 token: EXACTLY two `!`, neither preceded nor
-    // followed by another `!` — a 3+ run of `!` is plain text (Parse Spec, Token
-    // Sequences), so `!!!off` must not read as `!` + `!!off`.
-    private static final String CMD_BEGIN_SRC =
-            // http:// OR https://
-            "(?:https?://)?" +
-                    // www.
-                    "(?:www?\\.)?" +
-                    // ddot.it
-                    "ddot\\.it/" +
-                    // OR !!
-                    "|(?<!!)!!(?!!)";
-    private static final String CMD_PARAM_SRC = "(?:\\?[^\\s#]*)?(?:#\\S*)?";
-    private static final String CMD_SRC = CMD_BEGIN_SRC + "[^\\s?#]+" + CMD_PARAM_SRC;
-    private static final String BLOCK_SRC = CMD_BEGIN_SRC + "block";
-
-    private static final Pattern CMD_ONLY = Pattern.compile("^" + CMD_SRC + "$");
-    /** In-text commands: command shape is recognised wherever it occurs (Highlight Spec D6). */
-    private static final Pattern CMD_ANYWHERE = Pattern.compile(CMD_SRC);
-    // `!!off` / `!!on` are recognised ANYWHERE on a line, not only alone on one:
-    // the common way to write them is inside a host-language comment
-    // (`<!-- ddot.it/off -->`, `# !!off`). The directive line itself yields only
-    // the command token; the decoration around it stays unscoped, and the region
-    // starts on the NEXT line. `(?![^\s?#])` pins the command NAME, so
-    // `!!office` is not `!!off`. Group 2 is the optional `?query#fragment` part,
-    // a `command-param` token of its own.
-    private static final Pattern OFF_LINE =
-            Pattern.compile("(" + CMD_BEGIN_SRC + "off)(?![^\\s?#])(" + CMD_PARAM_SRC + ")");
-    private static final Pattern ON_LINE =
-            Pattern.compile("(" + CMD_BEGIN_SRC + "on)(?![^\\s?#])(" + CMD_PARAM_SRC + ")");
-    /** A block opener must END its physical line (block-as-field). */
-    private static final Pattern BLOCK_OPENER =
-            Pattern.compile("(" + BLOCK_SRC + ")(?:(\\?end=)(\\S+))?" + WS + "*$");
+    private static final String QUAD_SRC = "(?<!\\.)(?:\\.{4}|\\.{2}" + Whitespace.WS + "+\\.{2})(?!\\.)";
+    private static final String CM2_SRC = "(?<!,)" + Markers.CM2 + "(?!,)";
+    private static final String SC2_SRC = "(?<!;)" + Markers.SC2 + "(?!;)";
 
     /**
      * A line-initial `,,` or `;;` followed by a meta pair: a metadata continuation of the previous logical line (Parse
      * Spec "block-continuation" — CM2 after a block object, SC2 after a block meta object). Group 1 is CM2, group 2
      * SC2; they carry different tokens.
      */
-    private static final Pattern META_CONTINUATION = Pattern.compile(
-            "^" + WS + "*(?:((?<!,),,(?!,))|((?<!;);;(?!;)))(?=" + WS + "+(?<!\\.)\\.{2}(?!\\.))");
+    private static final Pattern META_CONTINUATION = Pattern.compile("^" + Whitespace.WS + "*(?:((?<!,),,(?!,))|((?<!;);;(?!;)))(?=" + Whitespace.WS + "+(?<!\\.)\\.{2}(?!\\.))");
 
     /** QUAD before DT2 so `.. ..` is ONE operator, not two. */
-    private static final Pattern SIGNIFICANT =
-            Pattern.compile(QUAD_SRC + "|" + DT2_SRC + "|" + CM2_SRC + "|" + SC2_SRC);
+    private static final Pattern SIGNIFICANT = Pattern.compile(QUAD_SRC + "|" + DT2_SRC + "|" + CM2_SRC + "|" + SC2_SRC);
 
     /**
      * The line-shape gate: a line is ddot.it only when it carries a complete operator skeleton — two DT2, or one DT4 /
      * `.. ..`. A lone `..` in prose does not qualify, which is what keeps 23-not-a-triple entirely plain.
      */
-    private static final Pattern GATE = Pattern.compile(
-            "(?<!\\.)\\.{4}(?!\\.)" +
-                    "|" +
-                    "(?<!\\.)\\.{2}(?!\\.).*(?<!\\.)\\.{2}(?!\\.)");
-    // Whole-string directive tests, shared so callers need not re-derive the
-    // four spellings (× optional query/fragment) of each directive themselves.
-    private static final Pattern OFF_ONLY =
-            Pattern.compile(CMD_BEGIN_SRC + "off(?![^\\s?#])" + CMD_PARAM_SRC);
-    private static final Pattern ON_ONLY =
-            Pattern.compile(CMD_BEGIN_SRC + "on(?![^\\s?#])" + CMD_PARAM_SRC);
+    private static final Pattern GATE = Pattern.compile("(?<!\\.)\\.{4}(?!\\.)" + "|" + "(?<!\\.)\\.{2}(?!\\.).*(?<!\\.)\\.{2}(?!\\.)");
 
     private DdotTokenizer() {}
 
@@ -150,7 +92,7 @@ public final class DdotTokenizer {
     }
 
     /**
-     * Emit an off/on directive matched by {@link #OFF_LINE}/{@link #ON_LINE}: group 1 is the command, group 2 its
+     * Emit an off/on directive matched by {@link PreCommand#OFF_LINE}/{@link PreCommand#ON_LINE}: group 1 is the command, group 2 its
      * optional `?query#fragment` param.
      */
     private static void emitCommandMatch(List<Token> out, int lineNo, Matcher m) {
@@ -160,8 +102,7 @@ public final class DdotTokenizer {
         }
     }
 
-    private static void emitGroup(List<Token> out, int lineNo, String line,
-                                  Matcher m, int group, TokenName token) {
+    private static void emitGroup(List<Token> out, int lineNo, String line, Matcher m, int group, TokenName token) {
         out.add(Token.of(lineNo, m.start(group), m.end(group), token, m.group(group)));
     }
 
@@ -172,8 +113,7 @@ public final class DdotTokenizer {
      * NotATriple, every token of the line (including a leading continuation delimiter the caller already emitted) is
      * retracted and the line yields nothing.
      */
-    private static BlockState emitLine(List<Token> out, int lineNo, String line,
-                                       DdotSlot phase, boolean inBlock, int mark) {
+    private static BlockState emitLine(List<Token> out, int lineNo, String line, DdotSlot phase, boolean inBlock, int mark) {
         BlockState st = new BlockState();
         Matcher m = SIGNIFICANT.matcher(line);
         int last = 0;
@@ -195,7 +135,7 @@ public final class DdotTokenizer {
 
             // MetaNextInline: after `;;`, only whitespace may precede the next
             // `..`/`....`. Any other content sends the WHOLE line to NotATriple.
-            if (phase == DdotSlot.META_NEXT && !trimWs(line.substring(last, sepStart)).isEmpty()) {
+            if (phase == DdotSlot.META_NEXT && !Whitespace.trimWs(line.substring(last, sepStart)).isEmpty()) {
                 return notATriple(out, mark, st);
             }
 
@@ -204,8 +144,7 @@ public final class DdotTokenizer {
             // `..` (a relative path) merges with the closing marker and the
             // pair is read as one QuadDot — `a ..links to.. ../../b.adoc`
             // would lose the object's first two dots (20-object-dotdot).
-            if (isQuad && sep.length() != 4
-                    && (phase == DdotSlot.RELATION || phase == DdotSlot.META_RELATION)) {
+            if (isQuad && sep.length() != 4 && (phase == DdotSlot.RELATION || phase == DdotSlot.META_RELATION)) {
                 isQuad = false;
                 sep = line.substring(sepStart, sepStart + 2);
                 sepEnd = sepStart + 2;
@@ -214,9 +153,8 @@ public final class DdotTokenizer {
             // A `!!block` ending the line makes the pending slot a block opener —
             // but only when that slot is a value position (block-as-field).
             if (opensBlockIn(phase)) {
-                Matcher bo = BLOCK_OPENER.matcher(line);
-                if (bo.find(last) && trimWs(line.substring(last, bo.start())).isEmpty()
-                        && bo.start() < m.start()) {
+                Matcher bo = PreCommand.BLOCK_OPENER.matcher(line);
+                if (bo.find(last) && Whitespace.trimWs(line.substring(last, bo.start())).isEmpty() && bo.start() < m.start()) {
                     emitBlockOpener(out, lineNo, line, bo);
                     st.opensBlock = true;
                     st.blockEnd = bo.group(3);
@@ -225,12 +163,7 @@ public final class DdotTokenizer {
             }
 
             emitSlot(out, lineNo, line, last, sepStart, phase);
-            out.add(Token.of(lineNo, sepStart, sepEnd,
-                    isComma ? TokenName.META_DELIM : isSemi ? TokenName.META_SEPARATOR
-                            : (phase == DdotSlot.META_START || phase == DdotSlot.META_NEXT
-                            || phase == DdotSlot.META_RELATION || phase == DdotSlot.META_OBJECT || inBlock)
-                            ? TokenName.META_DOUBLEDOT : TokenName.DOUBLEDOT,
-                    sep));
+            out.add(Token.of(lineNo, sepStart, sepEnd, isComma ? TokenName.META_DELIM : isSemi ? TokenName.META_SEPARATOR : (phase == DdotSlot.META_START || phase == DdotSlot.META_NEXT || phase == DdotSlot.META_RELATION || phase == DdotSlot.META_OBJECT || inBlock) ? TokenName.META_DOUBLEDOT : TokenName.DOUBLEDOT, sep));
             last = sepEnd;
 
             phase = switch (phase) {
@@ -246,8 +179,8 @@ public final class DdotTokenizer {
 
         // Trailing slot, or a block opener with no separator after it.
         if (opensBlockIn(phase)) {
-            Matcher bo = BLOCK_OPENER.matcher(line);
-            if (bo.find(last) && trimWs(line.substring(last, bo.start())).isEmpty()) {
+            Matcher bo = PreCommand.BLOCK_OPENER.matcher(line);
+            if (bo.find(last) && Whitespace.trimWs(line.substring(last, bo.start())).isEmpty()) {
                 emitBlockOpener(out, lineNo, line, bo);
                 st.opensBlock = true;
                 st.blockEnd = bo.group(3);
@@ -259,7 +192,7 @@ public final class DdotTokenizer {
         if (phase == DdotSlot.META_NEXT) {
             return notATriple(out, mark, st);
         }
-        if (trimWs(line.substring(last)).isEmpty() && phase == DdotSlot.META_START) {
+        if (Whitespace.trimWs(line.substring(last)).isEmpty() && phase == DdotSlot.META_START) {
             st.opensMetaBlock = true;   // trailing `,,` opened a block
         } else {
             emitSlot(out, lineNo, line, last, line.length(), phase);
@@ -267,12 +200,11 @@ public final class DdotTokenizer {
         return st;
     }
 
-    private static void emitSlot(List<Token> out, int lineNo, String line,
-                                 int lo, int hi, DdotSlot phase) {
-        int[] r = trimRange(line, lo, hi);
+    private static void emitSlot(List<Token> out, int lineNo, String line, int lo, int hi, DdotSlot phase) {
+        int[] r = Whitespace.trimRange(line, lo, hi);
         if (r == null) return;
         String text = line.substring(r[0], r[1]);
-        if (isCommand(text)) {
+        if (Commands.isCommand(text)) {
             // A slot whose whole text is a command IS a command (tokens.md,
             // "Commands inside slots"); its `?query`/`#fragment` part is a
             // separate command-param token.
@@ -292,7 +224,7 @@ public final class DdotTokenizer {
         // In-text commands (Highlight Spec D6): a command INSIDE the slot's text
         // is part of the field's value AND lights up — a nested `command` token
         // over just the command span, in addition to the slot token above.
-        Matcher cm = CMD_ANYWHERE.matcher(text);
+        Matcher cm = Commands.CMD_ANYWHERE.matcher(text);
         while (cm.find()) {
             if (cm.start() == 0 && cm.end() == text.length()) continue; // whole slot, handled above
             emitCommand(out, lineNo, r[0] + cm.start(), cm.group());
@@ -300,26 +232,9 @@ public final class DdotTokenizer {
     }
 
     private static void emitTrimmed(List<Token> out, int lineNo, String line, TokenName token) {
-        int[] r = trimRange(line, 0, line.length());
+        int[] r = Whitespace.trimRange(line, 0, line.length());
         if (r == null) return;
         out.add(Token.of(lineNo, r[0], r[1], token, line.substring(r[0], r[1])));
-    }
-
-    private static boolean isCommand(String s) {return CMD_ONLY.matcher(s).matches();}
-
-    /**
-     * True when {@code text} (surrounding whitespace ignored) is exactly an `off` directive in any of its four command
-     * spellings — `!!off`, `ddot.it/off`, `http://ddot.it/off`, `https://ddot.it/off` — with an optional
-     * `?query`/`#fragment`. The name is matched exactly (`!!office` is no directive) and the `!!` spelling is a strict
-     * EM2, so `!!!off` is not one either.
-     */
-    public static boolean isOffCommand(String text) {
-        return OFF_ONLY.matcher(trimWs(text)).matches();
-    }
-
-    /** True when {@code text} is exactly an `on` directive; see {@link #isOffCommand}. */
-    public static boolean isOnCommand(String text) {
-        return ON_ONLY.matcher(trimWs(text)).matches();
     }
 
     /** Retract every token of the current logical line; the line yields nothing. */
@@ -338,13 +253,12 @@ public final class DdotTokenizer {
      * text.
      */
     private static boolean opensBlockIn(DdotSlot phase) {
-        return phase == DdotSlot.SUBJECT || phase == DdotSlot.OBJECT
-                || phase == DdotSlot.META_OBJECT || phase == DdotSlot.META_START;
+        return phase == DdotSlot.SUBJECT || phase == DdotSlot.OBJECT || phase == DdotSlot.META_OBJECT || phase == DdotSlot.META_START;
     }
 
     private static boolean startsWithOperator(String line) {
         Matcher m = SIGNIFICANT.matcher(line);
-        return m.find() && trimWs(line.substring(0, m.start())).isEmpty();
+        return m.find() && Whitespace.trimWs(line.substring(0, m.start())).isEmpty();
     }
 
     /** Tokenize ddot source into the canonical highlighter token stream. */
@@ -372,11 +286,11 @@ public final class DdotTokenizer {
 
         for (int i = 0; i < lines.length; i++) {
             String line = lines[i];
-            String trimmed = trimWs(line);
+            String trimmed = Whitespace.trimWs(line);
 
             // --- excluded span -------------------------------------------
             if (off) {
-                Matcher on = ON_LINE.matcher(line);
+                Matcher on = PreCommand.ON_LINE.matcher(line);
                 if (on.find()) {
                     emitCommandMatch(out, i, on);
                     off = false;
@@ -403,7 +317,7 @@ public final class DdotTokenizer {
                 }
                 continue;
             }
-            Matcher offM = OFF_LINE.matcher(line);
+            Matcher offM = PreCommand.OFF_LINE.matcher(line);
             if (offM.find()) {
                 emitCommandMatch(out, i, offM);
                 off = true;
@@ -460,14 +374,13 @@ public final class DdotTokenizer {
                 int mark = out.size();
                 int g = mc.group(1) != null ? 1 : 2;
                 emitGroup(out, i, line, mc, g, g == 1 ? TokenName.META_DELIM : TokenName.META_SEPARATOR);
-                emitLine(out, i, line.substring(0, mc.end(g)).replaceAll("[^ \\t]", " ")
-                        + line.substring(mc.end(g)), DdotSlot.META_START, false, mark);
+                emitLine(out, i, line.substring(0, mc.end(g)).replaceAll("[^ \\t]", " ") + line.substring(mc.end(g)), DdotSlot.META_START, false, mark);
                 continue;
             }
 
             // --- `!!block` alone on a line = a SUBJECT opener --------------
-            Matcher bo = BLOCK_OPENER.matcher(line);
-            if (bo.find() && trimWs(line.substring(0, bo.start())).isEmpty()) {
+            Matcher bo = PreCommand.BLOCK_OPENER.matcher(line);
+            if (bo.find() && Whitespace.trimWs(line.substring(0, bo.start())).isEmpty()) {
                 emitBlockOpener(out, i, line, bo);
                 verbatim = true;
                 blockEnd = bo.group(3);
@@ -492,20 +405,6 @@ public final class DdotTokenizer {
             } else prevLineTriple = !st.notATriple;
         }
         return out;
-    }
-
-    /** Range of the non-whitespace span within [lo, hi), or {@code null} if blank. */
-    private static int @Nullable [] trimRange(String line, int lo, int hi) {
-        int s = lo, e = hi;
-        while (s < e && Tokens.isWs(line.charAt(s))) s++;
-        while (e > s && Tokens.isWs(line.charAt(e - 1))) e--;
-        return s < e ? new int[]{s, e} : null;
-    }
-
-    /** {@link String#trim()} over the spec's WS class. */
-    private static String trimWs(String s) {
-        int[] r = trimRange(s, 0, s.length());
-        return r == null ? "" : s.substring(r[0], r[1]);
     }
 
 }

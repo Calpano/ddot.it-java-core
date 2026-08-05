@@ -1,4 +1,4 @@
-package com.calpano.ddot.it.core.source;
+package it.ddot.core.source;
 
 /** The scheme of source */
 public interface ISourceScheme {

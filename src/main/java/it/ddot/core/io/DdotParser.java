@@ -3,6 +3,7 @@ package it.ddot.core.io;
 import it.ddot.core.DdotSlot;
 import it.ddot.core.DdotVocabulary;
 import it.ddot.core.event.DdotEvent;
+import it.ddot.core.event.IDdotTriple;
 import it.ddot.core.event.IMetaPair;
 import it.ddot.core.event.Meta;
 import it.ddot.core.source.ISnippet;
@@ -10,8 +11,10 @@ import it.ddot.core.source.ISourceLocation;
 import it.ddot.core.source.ISourceResourceAddress;
 import it.ddot.core.source.Snippet;
 import it.ddot.core.token.DdotTokenizer;
+import it.ddot.core.token.PreCommand;
 import it.ddot.core.token.Token;
 import it.ddot.core.token.TokenName;
+import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
 
 import java.util.ArrayList;
@@ -20,21 +23,22 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.regex.Pattern;
 
 public class DdotParser {
 
     public static final class Line {
 
         final Meta meta = new Meta();
-        @Nullable String subject, relation, object;
+        @Nullable String subject;
+        /**
+         * A QuadDot line skips the relation slot entirely, so the slot keeps this default: an untyped link is
+         * reported as {@link DdotVocabulary#LINKS_TO}, never as a null relation (see {@link IDdotTriple#type()}).
+         */
+        @NonNull String relation = DdotVocabulary.LINKS_TO;
+        @Nullable String object;
         boolean opensMetaBlock;
 
     }
-
-    static final Pattern BLOCK_OPENER = Pattern.compile("(?:(?:https?://)?ddot\\.it/|!!)block(?:\\?end=\\S+)?");
-    private static final Pattern OFF_CMD = Pattern.compile("(?:(?:https?://)?ddot\\.it/|!!)off");
-    private static final Pattern ON_CMD = Pattern.compile("(?:(?:https?://)?ddot\\.it/|!!)on");
 
     /** The tokenizer's transition table; a QuadDot skips the relation slot. */
     private static DdotSlot advance(DdotSlot slot, boolean quad) {
@@ -123,7 +127,7 @@ public class DdotParser {
     }
 
     private static boolean isBlockOpener(Token t) {
-        return t.tokenName().equals(TokenName.COMMAND) && BLOCK_OPENER.matcher(t.text()).matches();
+        return t.tokenName().equals(TokenName.COMMAND) && PreCommand.BLOCK_OPENER.matcher(t.text()).matches();
     }
 
     private static boolean isQuad(String sep) {
@@ -201,7 +205,7 @@ public class DdotParser {
             // `!!off` … `!!on`: the directives and everything between them are
             // processed by the reader and never emitted (developer guide).
             if (toks.getFirst().tokenName().equals(TokenName.EXCLUDED)) continue;
-            if (toks.getFirst().tokenName().equals(TokenName.COMMAND) && OFF_CMD.matcher(toks.getFirst().text()).matches()) {
+            if (toks.getFirst().tokenName().equals(TokenName.COMMAND) && PreCommand.OFF_CMD.matcher(toks.getFirst().text()).matches()) {
                 // `!!off` opens a new snippet: the subject register does NOT
                 // survive it (parsing-procedure: `mode = OFF; subject = null`),
                 // and neither does the "previous triple" a `,,` could attach to.
@@ -218,7 +222,7 @@ public class DdotParser {
             // An `!!on` directive line (the tokenizer emits only the command and
             // its optional param for it). An `!!on`-shaped SUBJECT of a real
             // triple line is not a directive here — it has slot tokens too.
-            if (toks.getFirst().tokenName().equals(TokenName.COMMAND) && ON_CMD.matcher(toks.getFirst().text()).matches() && toks.stream().allMatch(t -> t.tokenName().equals(TokenName.COMMAND) || t.tokenName().equals(TokenName.COMMAND_PARAM)))
+            if (toks.getFirst().tokenName().equals(TokenName.COMMAND) && PreCommand.ON_CMD.matcher(toks.getFirst().text()).matches() && toks.stream().allMatch(t -> t.tokenName().equals(TokenName.COMMAND) || t.tokenName().equals(TokenName.COMMAND_PARAM)))
                 continue;
 
             // A `,,` alone on a line opens a metadata block for the preceding
@@ -319,8 +323,12 @@ public class DdotParser {
                         // which carries the built-in relation `text`.
                         case META_START -> line.meta.add(DdotVocabulary.TEXT, value);
                         case META_RELATION -> pendingMetaRelation = value;
+                        // The untyped meta shortcut (`,, .... value`) leaves no
+                        // relation pending; like an untyped triple it carries
+                        // `links to` (see IMetaPair#type()), never a null type.
                         case META_OBJECT -> {
-                            line.meta.add(pendingMetaRelation, value);
+                            line.meta.add(pendingMetaRelation != null ? pendingMetaRelation : DdotVocabulary.LINKS_TO,
+                                    value);
                             pendingMetaRelation = null;
                         }
                     }
@@ -341,7 +349,7 @@ public class DdotParser {
      * The text a slot token contributes: a block opener contributes its block's body, every other token its own text.
      */
     private static String valueOf(Token t, Map<Integer, String> blockBodies) {
-        if (t.tokenName().equals(TokenName.COMMAND) && BLOCK_OPENER.matcher(t.text()).matches()) {
+        if (t.tokenName().equals(TokenName.COMMAND) && PreCommand.BLOCK_OPENER.matcher(t.text()).matches()) {
             // Only a block opener that ENDS its line opens a block. Elsewhere —
             // `x ..y.. !!block ,, ..k.. v` — `!!block` is ordinary field text,
             // because "a Command is a part of the text of the field holding it,

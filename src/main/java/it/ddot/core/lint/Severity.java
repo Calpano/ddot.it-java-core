@@ -1,4 +1,4 @@
-package com.calpano.ddot.it.core.lint;
+package it.ddot.core.lint;
 
 /**
  * The three layered severities of a {@link Diagnostic}, per {@code linting.adoc}:
