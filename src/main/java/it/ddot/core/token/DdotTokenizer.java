@@ -48,6 +48,9 @@ public final class DdotTokenizer {
     private static final String CM2_SRC = "(?<!,)" + Markers.CM2 + "(?!,)";
     private static final String SC2_SRC = "(?<!;)" + Markers.SC2 + "(?!;)";
 
+    /** `;;` alone, for finding where an inline meta entry ends. */
+    private static final Pattern SC2_ONLY = Pattern.compile(SC2_SRC);
+
     /**
      * A line-initial `,,` or `;;` followed by a meta pair: a metadata continuation of the previous logical line (Parse
      * Spec "block-continuation" — CM2 after a block object, SC2 after a block meta object). Group 1 is CM2, group 2
@@ -117,6 +120,9 @@ public final class DdotTokenizer {
         BlockState st = new BlockState();
         Matcher m = SIGNIFICANT.matcher(line);
         int last = 0;
+        // inside a MetaTextInline / MetaTextBlockLine: the current entry is a note, so every
+        // token up to the next `;;` (inline) or the end of the line (block) is its content
+        boolean note = false;
 
         while (m.find()) {
             String sep = m.group();
@@ -127,17 +133,25 @@ public final class DdotTokenizer {
 
             // Once in an object-ish phase, `..` is content, not a separator.
             if (!isComma && !isSemi && (phase == DdotSlot.OBJECT || phase == DdotSlot.META_OBJECT)) continue;
-            // `;;` separates inline meta pairs ONLY. Inside a `,,` block,
-            // MetaObjectInBlock := TextExcept{NL}, so it is ordinary content
-            // (28-semicolon-in-meta-block).
-            if (isSemi && (inBlock || phase != DdotSlot.META_OBJECT)) continue;
-            if (isComma && phase != DdotSlot.OBJECT) continue;
+            // `;;` separates inline meta ENTRIES — a pair's object and a free-text note alike
+            // (`EntryWord := Word - SC2`), and it does so unconditionally. Inside a `,,` block NL
+            // separates instead and `;;` is ordinary content (28-semicolon-in-meta-block).
+            if (isSemi && (inBlock || !(phase == DdotSlot.META_START || phase == DdotSlot.META_NEXT //
+                    || phase == DdotSlot.META_OBJECT))) continue;
 
-            // MetaNextInline: after `;;`, only whitespace may precede the next
-            // `..`/`....`. Any other content sends the WHOLE line to NotATriple.
-            if (phase == DdotSlot.META_NEXT && !Whitespace.trimWs(line.substring(last, sepStart)).isEmpty()) {
-                return notATriple(out, mark, st);
+            // MetaStart / MetaNextInline decide per ENTRY whether it is a pair or a note. A leading
+            // `..` opens a pair only if `[a MetaTripleInline derives]` — the automaton's one
+            // lookahead, bounded by the entry — otherwise that same `..` is the note's first
+            // character (`,, ..bla` is the note `..bla`). Anything else — text, `,,`, `!!` — starts a
+            // note too, and once a note has started only `;;` leaves it: `MetaTextInline` self-loops
+            // on `DT2 | DT4 | CM2 | EM2 | TX`.
+            if (!isSemi && !note && (phase == DdotSlot.META_START || phase == DdotSlot.META_NEXT)) {
+                note = isComma //
+                        || !Whitespace.trimWs(line.substring(last, sepStart)).isEmpty() //
+                        || !metaPairDerives(line, sepEnd, isQuad, entryEnd(line, sepStart, inBlock));
             }
+            if (note && !isSemi) continue;
+            if (isComma && phase != DdotSlot.OBJECT) continue;
 
             // The relation-closing operator is always a plain `..`, never the
             // untyped `.. ..` form. Without this, an object that begins with
@@ -170,11 +184,14 @@ public final class DdotTokenizer {
                 case SUBJECT -> isQuad ? DdotSlot.OBJECT : DdotSlot.RELATION;
                 case RELATION -> DdotSlot.OBJECT;
                 case OBJECT -> isComma ? DdotSlot.META_START : DdotSlot.OBJECT;
-                // The untyped meta form `,, .... obj` skips the meta relation.
-                case META_START, META_NEXT -> isQuad ? DdotSlot.META_OBJECT : DdotSlot.META_RELATION;
+                // `;;` ends the entry — here, one that held only text or nothing at all. The
+                // untyped meta form `,, .... obj` skips the meta relation.
+                case META_START, META_NEXT ->
+                        isSemi ? DdotSlot.META_NEXT : isQuad ? DdotSlot.META_OBJECT : DdotSlot.META_RELATION;
                 case META_RELATION -> DdotSlot.META_OBJECT;
                 case META_OBJECT -> isSemi ? DdotSlot.META_NEXT : DdotSlot.META_OBJECT;
             };
+            if (isSemi) note = false;   // a fresh entry begins after every `;;`
         }
 
         // Trailing slot, or a block opener with no separator after it.
@@ -187,17 +204,64 @@ public final class DdotTokenizer {
                 return st;
             }
         }
-        // MetaNextInline never accepts a NL: a line that ends right after `;;`
-        // (or with stray content after it) is NotATriple in its entirety.
-        if (phase == DdotSlot.META_NEXT) {
-            return notATriple(out, mark, st);
-        }
+        // An entry that is empty — `,, ;; x`, or the tail of a line ending in `;;` — contributes no
+        // metadata and is simply dropped; it does not poison the line. `;;` parts entries and says
+        // nothing about them having to be non-empty, so the triple stands either way. (The trailing
+        // slot below emits nothing for an empty range, so this needs no case of its own.)
         if (Whitespace.trimWs(line.substring(last)).isEmpty() && phase == DdotSlot.META_START) {
             st.opensMetaBlock = true;   // trailing `,,` opened a block
         } else {
             emitSlot(out, lineNo, line, last, line.length(), phase);
         }
         return st;
+    }
+
+    /**
+     * Where the inline meta entry starting at {@code from} ends: at the next `;;`, or at the end of the line if there
+     * is none. In a `,,` block NL is the separator and `;;` is content, so the entry is the whole line.
+     *
+     * <p>This is the bound on the {@link #metaPairDerives lookahead} below — "an entry ends at the next `SC2` or `NL`,
+     * so the guard never has to look past one entry" (Parse Spec, notes on the states).
+     */
+    private static int entryEnd(String line, int from, boolean inBlock) {
+        if (inBlock) return line.length();
+        Matcher m = SC2_ONLY.matcher(line);
+        return m.find(from) ? m.start() : line.length();
+    }
+
+    /**
+     * The automaton's one guard, {@code [a MetaTripleInline derives]} / {@code [a MetaTripleInBlock derives]}: does the
+     * marker just consumed — ending at {@code markerEnd}, within the entry ending at {@code entryEnd} — actually open a
+     * meta pair?
+     *
+     * <p>A {@code QuadDot} needs only a non-empty object ({@code MetaTripleInline := QuadDot MetaObjectInline} cannot
+     * fail otherwise). A {@code DoubleDot} needs the rest of the pair too: a non-empty {@code MetaRelation}, a closing
+     * {@code ..}, and a non-empty object after it. When this is false the marker is not an error but the first
+     * character of a note — {@code ,, ..bla} is the note {@code ..bla}, and {@code MetaEntryInline} is an ORDERED
+     * choice with {@code MetaTextInline} last.
+     */
+    private static boolean metaPairDerives(String line, int markerEnd, boolean quad, int entryEnd) {
+        if (markerEnd > entryEnd) return false;
+        if (quad) return !Whitespace.trimWs(line.substring(markerEnd, entryEnd)).isEmpty();
+        Matcher m = SIGNIFICANT.matcher(line);
+        int from = markerEnd;
+        while (m.find(from)) {
+            if (m.start() >= entryEnd) return false;
+            String s = m.group();
+            // `,,` and `;;` are ordinary content in a MetaRelation (`Name`) and, in a block, in the
+            // object too; only a `..` can close the relation.
+            if (s.equals(",,") || s.equals(";;")) {
+                from = m.end();
+                continue;
+            }
+            // A spaced `.. ..` closes with its LEADING `..`, which is the same demotion the caller
+            // applies in the relation slot (20-object-dotdot); a literal `....` does not.
+            boolean spacedQuad = s.length() != 4 && (s.indexOf(' ') >= 0 || s.indexOf('\t') >= 0);
+            int closeEnd = spacedQuad ? m.start() + 2 : m.end();
+            return !Whitespace.trimWs(line.substring(markerEnd, m.start())).isEmpty()
+                    && !Whitespace.trimWs(line.substring(closeEnd, entryEnd)).isEmpty();
+        }
+        return false;
     }
 
     private static void emitSlot(List<Token> out, int lineNo, String line, int lo, int hi, DdotSlot phase) {

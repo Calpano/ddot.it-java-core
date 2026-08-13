@@ -5,7 +5,7 @@ Max Völkel <mv@maxvoelkel.de>
 :url-spec-repo: https://github.com/calpano/ddot.it
 :url-graphinout: https://github.com/calpano/graphinout
 
-`com.calpano.ddot.it:ddot-core:0.2.0` — the ddot.it syntax and event model as a plain Java 21 jar with essentially no dependencies.
+`it.ddot:ddotit-core:0.2.1` — the ddot.it syntax and event model as a plain Java 21 jar with essentially no dependencies.
 
 [[what]]
 == What is in here
@@ -69,7 +69,7 @@ Its `test-data/cases` directory is the corpus that `ddot.it-javalib`'s `DdotCorp
 == Building
 
 .Commands
-* `mvn install` — compiles, runs the tests and installs `com.calpano.ddot.it:ddot-core:0.2.0` into the local repository.
+* `mvn install` — compiles, runs the tests and installs `it.ddot:ddotit-core:0.2.1` into the local repository.
 * `mvn dependency:tree` — the check that matters; the compile scope must show `org.jspecify:jspecify` and nothing else.
 
 Java 21 or newer is required.

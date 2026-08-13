@@ -46,9 +46,8 @@ public class DdotParser {
             case SUBJECT -> quad ? DdotSlot.OBJECT : DdotSlot.RELATION;
             case RELATION -> DdotSlot.OBJECT;
             case OBJECT -> DdotSlot.OBJECT;
-            case META_START -> quad ? DdotSlot.META_OBJECT : DdotSlot.META_RELATION;
+            case META_START, META_NEXT -> quad ? DdotSlot.META_OBJECT : DdotSlot.META_RELATION;
             case META_RELATION, META_OBJECT -> DdotSlot.META_OBJECT;
-            case META_NEXT -> DdotSlot.META_RELATION;
         };
     }
 
@@ -183,9 +182,10 @@ public class DdotParser {
         String currentSubject = null;
         DdotEvent openMetaEvent = null;   // the event a `,,` block is filling
         DdotEvent lastEvent = null;
-        // A `,,` block holds either triples or text, never both, and a whole
-        // MetaTextBlock is ONE node (`MetaTextBlock *-- "1..n" MetaTextBlockLine`)
-        // — so its lines join into a single `text` entry, not one per line.
+        // Pairs and notes mix freely in a `,,` block, in written order. A note spans as many
+        // ADJACENT lines as it has (`MetaTextBlock ::= MetaTextBlockLine (NL MetaTextBlockLine)*`),
+        // so text lines are buffered here and joined into one `text` entry; a pair line — or the
+        // closing `,,` — ends the run and the next text line starts a second note.
         List<String> metaTextLines = new ArrayList<>();
 
         for (int i = 0; i < lines.length; i++) {
@@ -243,7 +243,13 @@ public class DdotParser {
             if (inMetaBlock) {
                 for (IMetaPair mp : parsed.meta) {
                     if (DdotVocabulary.TEXT.equals(mp.type())) metaTextLines.add(mp.to());
-                    else openMetaEvent.addMeta(mp.type(), mp.to());
+                    else {
+                        // The note run above this pair ends HERE, not at the end of the block:
+                        // flushing first is what keeps the entries in written order and what makes
+                        // `note / pair / note` three entries rather than a pair and one merged note.
+                        flushMetaText(openMetaEvent, metaTextLines);
+                        openMetaEvent.addMeta(mp.type(), mp.to());
+                    }
                 }
                 continue;
             }
@@ -304,9 +310,12 @@ public class DdotParser {
                     phase = DdotSlot.META_START;
                     sawMetaDelim = true;
                 }
-                // `;;` ends the current pair and starts the next one.
+                // `;;` ends the current entry and starts the next one. The next entry begins in
+                // META_NEXT, not META_START: the two admit the same things, but only META_START can
+                // still turn into a block opener, so a line ending in `,, ;;` must not be mistaken
+                // for one — that would swallow the triple as an unterminated block.
                 case TokenName.META_SEPARATOR -> {
-                    phase = DdotSlot.META_START;
+                    phase = DdotSlot.META_NEXT;
                     pendingMetaRelation = null;
                 }
                 // `?end=` / the END marker of a marked block opener, and block body
@@ -319,9 +328,9 @@ public class DdotParser {
                         case SUBJECT -> line.subject = value;
                         case RELATION -> line.relation = value;
                         case OBJECT -> line.object = value;
-                        // Text directly after `,,` with no `..` is meta TEXT,
-                        // which carries the built-in relation `text`.
-                        case META_START -> line.meta.add(DdotVocabulary.TEXT, value);
+                        // Text opening an entry — directly after `,,` or after a `;;` — with no
+                        // `..` is meta TEXT, which carries the built-in relation `text`.
+                        case META_START, META_NEXT -> line.meta.add(DdotVocabulary.TEXT, value);
                         case META_RELATION -> pendingMetaRelation = value;
                         // The untyped meta shortcut (`,, .... value`) leaves no
                         // relation pending; like an untyped triple it carries

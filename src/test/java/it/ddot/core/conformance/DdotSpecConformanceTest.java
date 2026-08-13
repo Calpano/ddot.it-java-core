@@ -1,6 +1,7 @@
 package it.ddot.core.conformance;
 
 import it.ddot.core.event.DdotEvent;
+import it.ddot.core.event.IMetaPair;
 import it.ddot.core.io.DdotEventExporter;
 import it.ddot.core.io.DdotParser;
 import it.ddot.core.token.DdotTokenizer;
@@ -125,18 +126,44 @@ final class DdotSpecConformanceTest {
         assertEquals("#frag", ofType(toks, TokenName.COMMAND_PARAM).getFirst().text());
     }
 
-    // --- MetaNextInline: after `;;` only `..`/`....` may follow --------------
+    // --- MetaNextInline: after `;;` comes an entry, of either kind ------------
 
     @Test
-    void textAfterInlineMetaSeparatorMakesTheLineNotATriple() {
-        assertTrue(tok("s ..p.. o ,, ..a.. b ;; junk").isEmpty());
-        assertTrue(tok("s ..p.. o ,, ..a.. b ;; junk ..c.. d").isEmpty());
-        // Trailing `;;` with nothing after it: MetaNextInline accepts no NL.
-        assertTrue(tok("s ..p.. o ,, ..a.. b ;;").isEmpty());
+    void anEntryAfterTheInlineMetaSeparatorIsAPairOrANote() {
+        // Text there is the next entry — a note — not the death of the line.
+        assertEquals(List.of("junk"), ofType(tok("s ..p.. o ,, ..a.. b ;; junk"), TokenName.META_TEXT)
+                .stream().map(Token::text).collect(Collectors.toList()));
+        // …and a `..` inside that note stays inside it.
+        assertEquals(List.of("junk ..c.. d"), ofType(tok("s ..p.. o ,, ..a.. b ;; junk ..c.. d"), TokenName.META_TEXT)
+                .stream().map(Token::text).collect(Collectors.toList()));
         // Control: a well-formed second pair keeps the line.
         List<Token> ok = tok("s ..p.. o ,, ..a.. b ;; ..c.. d");
         assertEquals(List.of("a", "c"), ofType(ok, TokenName.META_RELATION).stream()
                 .map(Token::text).collect(Collectors.toList()));
+    }
+
+    /**
+     * {@code ;;} parts entries and demands nothing of them, so an EMPTY entry — a line ending in {@code ;;}, or a
+     * {@code ;;} straight after the {@code ,,} — contributes no metadata and is dropped. The triple and the entries
+     * around it are untouched: an empty entry is not an error, and a separator is not a promise.
+     */
+    @Test
+    void anEmptyMetaEntryIsDroppedAndKeepsItsLine() {
+        // Trailing: the pair survives, and the separator is still tokenized.
+        List<DdotEvent> trailing = events("s ..p.. o ,, ..a.. b ;;\n");
+        assertEquals(1, trailing.size());
+        assertEquals(List.of("a"), trailing.getFirst().meta().pairs().stream().map(IMetaPair::type).toList());
+        assertEquals(1, ofType(tok("s ..p.. o ,, ..a.. b ;;"), TokenName.META_SEPARATOR).size());
+
+        // Leading: an empty first entry, then the note `x` — NOT one note reading `;; x`.
+        List<DdotEvent> leading = events("s ..p.. o ,, ;; x\n");
+        assertEquals(1, leading.getFirst().meta().size());
+        assertEquals("x", leading.getFirst().meta().get(0).to());
+
+        // Nothing but separators: a bare triple, no metadata, no lost line.
+        List<DdotEvent> empty = events("s ..p.. o ,, ;;\n");
+        assertEquals(1, empty.size());
+        assertTrue(empty.getFirst().meta().isEmpty());
     }
 
     // --- blank-line rules for `,,` blocks ------------------------------------
@@ -220,6 +247,87 @@ final class DdotSpecConformanceTest {
         List<DdotEvent> evs = events("A ..p.. B ,,\nnote\n\nC ..q.. D\n");
         assertEquals(1, evs.size());
         assertEquals("C", evs.getFirst().from);
+    }
+
+    // --- meta entries: pairs and notes mix, `;;` separates them ---------------
+
+    /**
+     * {@code MetaInline := MetaEntryInline (SC2 MetaEntryInline)*} with
+     * {@code MetaEntryInline := MetaTripleInline | MetaTextInline} — a note is one KIND of entry, not the
+     * alternative to the whole chain, so pairs and notes mix in any order and {@code ;;} separates them
+     * unconditionally ({@code EntryWord := Word - SC2}). Corpus cases 36-inline-meta-notes and
+     * 37-inline-meta-mixed.
+     */
+    @Test
+    void inlineNotesAndPairsMixAndAreSeparatedBySemicolons() {
+        List<DdotEvent> notes = events("a ..b.. c ,, first ;; second ;; third\n");
+        assertEquals(List.of("first", "second", "third"), notes.getFirst().meta().pairs().stream().map(IMetaPair::to).toList());
+        assertTrue(notes.getFirst().meta().pairs().stream().allMatch(p -> p.type().equals("text")));
+
+        // A pair, a note and an untyped pair, in written order.
+        List<DdotEvent> mixed = events("a ..b.. c ,, ..k.. v ;; a note ;; .... o\n");
+        assertEquals(List.of("k", "text", "links to"), mixed.getFirst().meta().pairs().stream().map(IMetaPair::type).toList());
+        assertEquals(List.of("v", "a note", "o"), mixed.getFirst().meta().pairs().stream().map(IMetaPair::to).toList());
+
+        // The tokenizer says the same: three entries, two separators, no note swallowing a `..`.
+        List<Token> toks = tok("a ..b.. c ,, ..k.. v ;; a note ;; .... o\n");
+        assertEquals(List.of("a note"), ofType(toks, TokenName.META_TEXT).stream().map(Token::text).toList());
+        assertEquals(2, ofType(toks, TokenName.META_SEPARATOR).size());
+    }
+
+    /**
+     * The one lookahead, {@code MetaStart --> MetaRelationInline : DT2 [a MetaTripleInline derives]}: a leading
+     * {@code ..} opens a pair only when the pair actually closes inside the entry. Otherwise the ordered choice
+     * falls through to {@code MetaTextInline} — {@code ,, ..bla} is the note {@code ..bla}, not a dead line.
+     */
+    @Test
+    void aDoubleDotThatNeverClosesIsANote() {
+        List<DdotEvent> evs = events("a ..b.. c ,, ..bla\n");
+        assertEquals(1, evs.getFirst().meta().size());
+        assertEquals("text", evs.getFirst().meta().get(0).type());
+        assertEquals("..bla", evs.getFirst().meta().get(0).to());
+
+        // The guard is bounded by the entry: the closing `..` of the SECOND entry cannot rescue the first.
+        List<DdotEvent> bounded = events("a ..b.. c ,, ..bla ;; ..k.. v\n");
+        assertEquals(List.of("text", "k"), bounded.getFirst().meta().pairs().stream().map(IMetaPair::type).toList());
+        assertEquals("..bla", bounded.getFirst().meta().get(0).to());
+    }
+
+    /** Control: with only whitespace after `,,`, the first `..` DOES start a pair. */
+    @Test
+    void inlineMetaPairStillStartsWhenNoTextPrecedesIt() {
+        List<DdotEvent> evs = events("a ..b.. c ,, ..k.. v ;; ..j.. w\n");
+        assertEquals(2, evs.getFirst().meta().size());
+        assertEquals("k", evs.getFirst().meta().get(0).type());
+        assertEquals("j", evs.getFirst().meta().get(1).type());
+    }
+
+    /**
+     * Once a note has begun, {@code MetaTextInline} self-loops on {@code DT2 | DT4 | CM2 | EM2 | TX}: only a
+     * {@code ;;} leaves it, so a `..` inside the note is content and never re-opens a pair.
+     */
+    @Test
+    void aDoubleDotInsideANoteIsContent() {
+        List<DdotEvent> evs = events("a ..b.. c ,, see ../../x.adoc for this ;; ..k.. v\n");
+        assertEquals(List.of("text", "k"), evs.getFirst().meta().pairs().stream().map(IMetaPair::type).toList());
+        assertEquals("see ../../x.adoc for this", evs.getFirst().meta().get(0).to());
+    }
+
+    /**
+     * In a block, NL separates and {@code ;;} is content ({@code MetaObjectInBlock := Text}); ADJACENT text lines
+     * are ONE note and a pair line ends the run. Corpus cases 38-block-meta-notes and 39-block-meta-mixed.
+     */
+    @Test
+    void blockNotesRunAcrossAdjacentLinesAndArePartedByPairLines() {
+        List<DdotEvent> evs = events("a ..b.. c ,,\nfirst\nstill first\n..k.. v\nsecond\n,,\n");
+        assertEquals(List.of("text", "k", "text"), evs.getFirst().meta().pairs().stream().map(IMetaPair::type).toList());
+        assertEquals("first\nstill first", evs.getFirst().meta().get(0).to());
+        assertEquals("second", evs.getFirst().meta().get(2).to());
+
+        // `;;` inside a block line is ordinary content, not a separator (28-semicolon-in-meta-block).
+        List<DdotEvent> semi = events("a ..b.. c ,,\none ;; two\n,,\n");
+        assertEquals(1, semi.getFirst().meta().size());
+        assertEquals("one ;; two", semi.getFirst().meta().get(0).to());
     }
 
     @Test

@@ -22,7 +22,7 @@ import static org.junit.jupiter.api.Assertions.fail;
 /**
  * Byte-exact conformance of {@link DdotTokenizer}, {@link DdotEventExporter} and
  * {@link DdotHtmlRenderer} against the
- * cross-implementation golden corpus in the {@code ddot.it} repo ({@code test-data/cases/}, 35 cases).
+ * cross-implementation golden corpus in the {@code ddot.it} repo ({@code test-data/cases/}, 42 cases).
  *
  * <p>Each case directory holds {@code input.ddot} plus the goldens this test asserts:
  * <ul>
@@ -50,7 +50,7 @@ final class CorpusConformanceTest {
     /** Sibling checkout of <a href="https://github.com/calpano/ddot.it">...</a>, resolved from this repo's root. */
     private static final Path DEFAULT_CASES = Path.of("..", "ddot.it", "test-data", "cases");
 
-    /** The corpus has 35 cases; anything materially smaller means we are asserting against a stub. */
+    /** The corpus has 42 cases; anything materially smaller means we are asserting against a stub. */
     static final int MIN_CASES = 30;
 
     private static final String EVENT_KIND = "ddot";
@@ -137,7 +137,7 @@ final class CorpusConformanceTest {
         }
         if (caseDirs.size() < MIN_CASES) {
             fail("The ddot.it corpus at " + dir.toAbsolutePath().normalize() + " has only "
-                    + caseDirs.size() + " case(s); at least " + MIN_CASES + " are expected (the corpus has 35)."
+                    + caseDirs.size() + " case(s); at least " + MIN_CASES + " are expected (the corpus has 42)."
                     + " A truncated corpus would make these conformance tests pass vacuously, so this is a"
                     + " failure, not a skip.");
         }
