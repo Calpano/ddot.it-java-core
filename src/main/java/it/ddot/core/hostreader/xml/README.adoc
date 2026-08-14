@@ -1,0 +1,62 @@
+= XML Reader
+:icons: font
+// ddot.it/off
+
+Extensions:: `.xml`
+Kind:: `"xml"`
+Parser:: `XmlParser`
+Reader:: `ReaderXml`
+
+See link:../../../../../../../../doc/how-to-write-a-reader.adoc[How to Write a Reader] for the general architecture.
+
+== Content Types
+
+[cols="1,1,1"]
+|===
+| XML syntax | Parser callback | Block boundary
+
+| `<!-- ... -->`
+| `onXmlComment`
+| Isolated block — subject resets after the comment
+
+| Element text (after tag stripping)
+| `onTextLine`
+| No block — subject persists across consecutive text lines
+
+| `<?...?>`, `<!...>` (processing instructions, DOCTYPE)
+| _(none)_
+| Silently skipped
+|===
+
+== Tag Stripping
+
+All XML tags are removed with a single regex before the text is delivered to `AbstractSourceReader`:
+
+[source,java]
+----
+private static final Pattern TAG = Pattern.compile("<[^>]+>");
+
+String text = TAG.matcher(trimmed).replaceAll("").strip();
+if (!text.isEmpty()) handler.onTextLine(lineNumber, text);
+----
+
+This handles inline elements, namespace-prefixed tags, and self-closing tags uniformly.
+`<item>Alice .. knows .. Bob</item>` becomes `Alice .. knows .. Bob`.
+
+== Subject Persistence Across Elements
+
+Text lines use no block boundary, so the subject set by one element persists into the next:
+
+[source,xml]
+----
+<item>S3 .. P6 .. O5</item>   <!-- sets subject = S3 -->
+<item>.. P7 .. O6</item>      <!-- continuation: uses S3 -->
+----
+
+This is intentional — sibling XML elements in a sequence often form a natural continuation.
+
+== Pitfall: Attribute Values
+
+Tag stripping removes the entire tag including its attributes.
+Triples placed inside attribute values (e.g. `<item label="A .. p .. B">`) are never seen by the reader.
+All triples must appear as element text content.

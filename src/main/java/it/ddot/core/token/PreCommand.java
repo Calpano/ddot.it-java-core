@@ -31,6 +31,17 @@ public enum PreCommand {
     public static final Pattern OFF_CMD = Pattern.compile("(?:(?:https?://)?ddot\\.it/|!!)off");
     public static final Pattern ON_CMD = Pattern.compile("(?:(?:https?://)?ddot\\.it/|!!)on");
 
+    /**
+     * The {@code !!this} self-reference, in all four spellings the Parse Spec lists: {@code ddot.it/this},
+     * {@code http://ddot.it/this}, {@code https://ddot.it/this} and {@code !!this}.
+     *
+     * <p>Matching it is the COLLECTOR's business, not the parser's: "Commands are not resolved at this
+     * layer. `!!this` is emitted as the literal `from` value … substituting `source` for it is the
+     * collector's job" (Parse Spec). A reader that substitutes early makes its events disagree with every
+     * other reader's.
+     */
+    public static final Pattern THIS_CMD = Pattern.compile("(?:(?:https?://)?ddot\\.it/|!!)this");
+
     public static String blockWithEnd(String marker) {
         return "!!block?end=" + marker;
     }

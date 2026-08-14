@@ -1,0 +1,47 @@
+= HTML Reader
+:icons: font
+
+Extensions:: `.html`, `.htm`
+Kind:: `"html"`
+Parser:: `HtmlParser`
+Reader:: `ReaderHtml`
+
+See link:../../../../../../../../doc/how-to-write-a-reader.adoc[How to Write a Reader] for the general architecture.
+
+== Content Types
+
+[cols="1,1,1"]
+|===
+| HTML syntax | Parser callback | Block boundary
+
+| `<!-- ... -->`
+| `onHtmlComment`
+| Isolated block — subject resets after the comment
+
+| `<p>`, `<li>`, `<td>`, `<th>`, `<div>`, `<h1>`–`<h6>`
+| `onTextBlock`
+| Isolated block per element — subject resets after each element
+
+| `<html>`, `<body>`, `<head>`, `<ul>`, etc.
+| _(none)_
+| Not delivered — structural/container tags are ignored
+|===
+
+== Block Elements
+
+The set of tags that deliver content: `p`, `li`, `td`, `th`, `div`, `h1`–`h6`.
+Both inline (`<p>content</p>`) and multi-line elements are handled.
+The `<!-- -->` / tag delimiters are stripped; only the inner text reaches `AbstractSourceReader`.
+
+== Extraction Notes
+
+* HTML attributes are never scanned — triples must appear in text content, not attribute values.
+* Structural tags (`<html>`, `<body>`, `<head>`, `<ul>`, `<ol>`, `<table>`) produce no callback; their container role means they have no direct text content.
+* Each text-block element is an isolated block.
+  Subject does **not** persist across sibling `<p>` or `<li>` elements (unlike XML plain text).
+
+== Difference from XML Reader
+
+`ReaderHtml` treats every block-level element as an isolated block, so continuation does not cross element boundaries.
+`ReaderXml` treats text lines as plain (no block), so subject persists across sibling text content.
+Choose the HTML reader for HTML documents where each element is semantically independent; use the XML reader when sibling text nodes naturally form a continuation sequence.

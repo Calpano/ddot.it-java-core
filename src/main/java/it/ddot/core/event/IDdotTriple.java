@@ -1,6 +1,5 @@
 package it.ddot.core.event;
 
-import it.ddot.core.DdotVocabulary;
 
 /**
  * The 'naked' triple, just the SPO, here (from,type,to).
@@ -20,7 +19,7 @@ public interface IDdotTriple {
     String to();
 
     /**
-     * Ⓟ The user-typed relation ({@link DdotVocabulary#LINKS_TO} for an untyped link ({@code ....} / {@code .. ..}).
+     * Ⓟ The user-typed relation ({@link it.ddot.core.DdotVocabulary#LINKS_TO} for an untyped link ({@code ....} / {@code .. ..}).
      */
     String type();
 

@@ -1,0 +1,25 @@
+= A Simple ADoc File
+:toc:
+:mouse: 🐭
+
+This is expected to be plain.
+
+[[foo]]
+== A nice H2
+So, a plain content in the H2
+
+=== Hurray H3
+Use an image
+
+.My Diagram
+[plantuml]
+....
+hide empty members
+hide circle
+
+class Foo
+interface Bar
+Bar <|- Foo
+....
+
+Lets link to <<foo>>.

@@ -1,0 +1,68 @@
+= AsciiDoc
+:toc:
+
+== Meta-Data Options
+What is a good way to embed meta-data in AsciiDoc, so that a single file can be mapped as HTML content to multiple nodes?
+
+
+Document Attributes with Prefixes::
+Define custom attributes at the document level or before sections to specify node mappings:
+
++
+----
+:node-id: node123
+:node-type: concept
+----
+
+Block Attributes::
+Use AsciiDoc block attributes to annotate specific sections:
++
+----
+[node-id="node456", node-type="example"]
+== Section Title
+----
+
+Inline Anchors with Metadata::
+Leverage anchor syntax with custom metadata:
+
++
+----
+[[node789,type=definition]]
+== Another Section
+----
+
+Comment-Based Metadata::
+Embed structured metadata in comments for parsing:
+
++
+----
+// node-meta: {"id": "node101", "type": "tutorial", "tags": ["intro"]}
+== Getting Started
+----
+
+Custom Role Attributes::
+Apply roles to blocks that can be interpreted as node metadata:
+
++
+----
+[.node-concept#node202]
+== Conceptual Overview
+----
+
+== Selected Options
+We support __Block Attributes__ (using the `node` attribute name) and __Custom Role Attributes__.
+
+----
+[node="concept-123"]
+== Section Title
+----
+
+or
+
+----
+[#concept-123]
+== Section Title
+----
+
+
+

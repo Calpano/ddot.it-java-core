@@ -1,0 +1,156 @@
+= AsciiDoc Reader
+:icons: font
+
+Extensions:: `.adoc`, `.asciidoc`
+Kind:: `"asciidoc"`
+Parser:: `AsciiDocReader`
+Reader:: `AsciiDocReader`
+
+See link:../../../../../../../../doc/how-to-write-a-reader.adoc[How to Write a Reader] for the general architecture.
+
+== Two-layer parsing: primary AsciiDoc, then secondary ddot.it
+
+The reader processes the source in two passes, and the order is load-bearing:
+
+. *Primary — AsciiDoc syntax.* `AsciiDocParser` understands the AsciiDoc file format and nothing about ddot.it.
+  It splits the source into AsciiDoc structures (plain lines, line comments, comment blocks, source blocks) and,
+  in `AsciiDocReader.StructureHandler`, also resolves inline AsciiDoc constructs — currently
+
+  link:TARGET[TEXT]
+
+  macros (see _Inline `link:` macros_ below).
+. *Secondary — ddot.it triples.* The _residual_ text of each structure is delegated to
+  `StructuredSource2TripleEvents`, which understands the ddot.it grammar and nothing about AsciiDoc: `S .. P .. O`
+  splitting, continuation lines, `,,` metadata, and `ddot.it/on` / `ddot.it/off`.
+
+Why the order matters: ddot.it uses `..` as its separator, while AsciiDoc relative-path link targets such as
+`link:../../xml/graphml/graphml.adoc[GraphML]` literally contain `../..`. If the raw macro reached the secondary
+parser, that `../..` would be mis-read as a `.. / ..` triple. Resolving the macro in the *primary* layer removes the
+collision before the secondary parser ever sees the line.
+
+== Content Types
+
+[cols="1,1,1"]
+|===
+| AsciiDoc syntax | Parser callback | Block boundary
+
+| `// comment`
+| `onLineComment`
+| Isolated block — subject resets after the comment
+
+| `////` ... `////`
+| `onCommentBlock`
+| Isolated block — continuation works within, not across
+
+| `\----` ... `\----`
+| `onSourceBlock`
+| Isolated block — source/listing content treated as triples
+
+| Body text
+| `onPlainLine`
+| No block — subject persists across consecutive plain lines
+|===
+
+== Extraction Notes
+
+* Line comments: the leading `//` is stripped before `line()` is called.
+  `////` is treated as a comment-block delimiter, never as a line comment.
+* `onPlainLine` delivers the raw line (no stripping) because body text has no surrounding delimiters.
+* Source/listing blocks (`\----`) are treated identically to comment blocks: the fence delimiters are stripped and the inner lines form one isolated block.
+
+== Inline `link:` macros
+
+In a plain line, every
+
+  link:TARGET[TEXT]
+
+macro is resolved during the primary pass
+(`AsciiDocReader.resolveLinkMacros`):
+
+* an untyped link triple is emitted to the secondary parser as `<docId> .... TARGET ,, TEXT` — i.e. a `links to`
+  edge from the *current document* to `TARGET`, with the macro's display `TEXT` carried as a `,,` note;
+* the macro is then replaced by its `TEXT` in the residual line, so the surrounding prose still reads naturally and
+  no longer trips the `..` separator.
+
+`docId` is the *repo-relative* document path produced by `AsciiDocReader.repoRelativeDocId`: the file's path relative
+to the parent of its enclosing git repository, so it begins with the repo directory name (e.g.
+`graph-format-registry/formats/xml/kgml/kgml-0.7.2.adoc`). When no enclosing `.git` is found it falls back to
+`ddot.it/this` (the absolute resource URI). Anchoring on a concrete document subject (rather than a bare `....`
+continuation) means a "See also" link is captured even when it appears in prose after the source blocks, where no
+triple subject is active.
+
+[source,asciidoc]
+----
+See also: link:../../xml/graphml/graphml.adoc[GraphML]
+----
+
+in `formats/xml/kgml/kgml-0.7.2.adoc` yields the triple
+
+[source]
+----
+graph-format-registry/formats/xml/kgml/kgml-0.7.2.adoc ..links to.. ../../xml/graphml/graphml.adoc ,, GraphML
+----
+
+and the residual line becomes the harmless `See also: GraphML`.
+
+Notes:
+
+* Multiple macros on one line each produce their own triple, in order.
+* Only `link:` is recognised. Bare URL macros (`https://host/path[text]`) are left untouched; their targets contain
+  no `..`, so they do not collide with the separator.
+* A macro whose `[TEXT]` is wrapped across a line break is not matched (the closing `]` is on the next line) and is
+  left as-is.
+
+== Pitfall: `////` vs `//`
+
+A line that starts with `////` opens a comment _block_.
+The parser distinguishes the two by checking `!trimmed.startsWith("////")` before the `//` test.
+A line comment starting with exactly `//` is never mistaken for a block delimiter.
+
+== Pitfall: literal triple syntax in prose
+
+The secondary parser treats any plain line containing two `..` as a triple. A line that merely _documents_ the
+syntax — e.g. the prose `each statement is written as subject..predicate..object` — is therefore read as a triple.
+Put such literal examples inside a `----` source block (or rephrase them) if they should not contribute triples.
+
+== Adoc2Kg — Document-to-KG Mapping
+
+`Adoc2Kg` reads a parsed `AdocDocument` and maps it to one or more KG nodes via an `IHandler` callback (`createNode(nodeId, label, htmlContent, nodeType)`).
+
+It operates in two modes selected by the document headers:
+
+=== Whole-doc mode
+
+Triggered when the document header contains `kg-node`.
+
+[source,asciidoc]
+----
+= My Document
+:kg-node: some-node-id
+:kg-type: concept
+----
+
+The entire document is rendered to HTML and emitted as a single node.
+`kg-node` → node ID, document title → label, `kg-type` → node type.
+
+=== Section mode (default)
+
+When `kg-node` is absent, each section with an explicit `[[anchor]]` ID becomes its own node.
+Sections without an anchor are skipped.
+
+[source,asciidoc]
+----
+[[my-concept]]
+[kg-type="concept"]
+== My Concept
+
+Body text becomes the node's HTML content.
+----
+
+The section headline text becomes the label; the anchor ID becomes the node ID.
+`kg-type` can be set per-block via the `[kg-type="..."]` attribute list.
+
+=== kg-type extraction
+
+`Adoc2Kg.extractKgType(parameters)` parses a block attribute string for `kg-type="..."` using a regex.
+Returns `null` if absent or blank.

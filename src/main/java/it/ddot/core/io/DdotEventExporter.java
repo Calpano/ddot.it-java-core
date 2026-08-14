@@ -1,8 +1,6 @@
 package it.ddot.core.io;
 
-import it.ddot.core.DdotVocabulary;
 import it.ddot.core.event.DdotEvent;
-import it.ddot.core.token.DdotTokenizer;
 import org.jspecify.annotations.NonNull;
 
 import java.util.List;
@@ -15,7 +13,7 @@ import java.util.List;
  * Asserted against {@code expected.events.jsonl} in the shared corpus by {@code CorpusConformanceTest} here and by
  * {@code PreviewHtmlGoldenTest} in the IntelliJ plugin.
  *
- * <p><strong>This is a fold over {@link DdotTokenizer}, not a parser.</strong>
+ * <p><strong>This is a fold over {@link it.ddot.core.token.DdotTokenizer}, not a parser.</strong>
  * It used to be an independent line-oriented regex parser, and that is precisely why it silently dropped four spec'd
  * constructs: {@code !!block} bodies (the literal {@code "!!block"} was exported as the field value), free meta text,
  * {@code ;;}-separated inline meta pairs, and the untyped {@code ,, .... value} shortcut. The tokenizer already
@@ -72,7 +70,7 @@ public final class DdotEventExporter {
      * deterministic and dependency-free.
      *
      * <p>{@code type} is always written, never omitted: a triple has all three of subject, relation and object, and an
-     * untyped {@code ....} link carries {@link DdotVocabulary#LINKS_TO} explicitly rather than leaving the consumer to
+     * untyped {@code ....} link carries {@link it.ddot.core.DdotVocabulary#LINKS_TO} explicitly rather than leaving the consumer to
      * default a missing field (Parse Spec, Triple Events).
      */
     private static String toJson(DdotEvent event) {

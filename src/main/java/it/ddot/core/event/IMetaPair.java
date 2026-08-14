@@ -1,6 +1,5 @@
 package it.ddot.core.event;
 
-import it.ddot.core.DdotVocabulary;
 
 /**
  * One metadata entry — a (relation, object) pair, which is why it uses the same two key names as the triple itself.
@@ -21,8 +20,8 @@ public interface IMetaPair {
 
     /**
      * The meta-relation. For a typed link ({@code ,, ..since.. 2016}) this is the relation name ('since'). For the
-     * untyped link shortcut ({@code ,, .... value}) this is {@link DdotVocabulary#LINKS_TO}. Free meta-text
-     * ({@code ,, a note}) is <em>not</em> untyped: it is reported with relation {@link DdotVocabulary#TEXT}. The lines
+     * untyped link shortcut ({@code ,, .... value}) this is {@link it.ddot.core.DdotVocabulary#LINKS_TO}. Free meta-text
+     * ({@code ,, a note}) is <em>not</em> untyped: it is reported with relation {@link it.ddot.core.DdotVocabulary#TEXT}. The lines
      * of one multi-line {@code ,,} text block are a single node and so join into one {@code text} entry with embedded
      * newlines, not one entry per line.
      */

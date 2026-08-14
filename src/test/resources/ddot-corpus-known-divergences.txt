@@ -1,0 +1,13 @@
+# Known divergences of this library from the shared ddot.it golden corpus
+# (../ddot.it/test-data/cases, see that repo's test-data/README.md).
+#
+# Format: <case-directory-name>: <one-line reason naming the missing feature>
+# Lines starting with '#' and blank lines are ignored.
+#
+# This list is checked in BOTH directions by DdotCorpusConformanceTest:
+#   - a case listed here MUST still mismatch the corpus; if it starts matching, the test FAILS
+#     and tells you to delete the line (so the list can never rot into a silent allow-list);
+#   - a case NOT listed here MUST match the corpus byte for byte.
+# Adding a line is therefore a deliberate, reviewable act — never a way to silence a red test.
+
+# (empty: this library conforms to every case in the corpus)

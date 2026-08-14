@@ -1,0 +1,90 @@
+= YAML Reader
+:icons: font
+
+Extensions:: `.yaml`, `.yml`
+Kind:: `"yaml"`
+Parser:: `YamlParser`
+Reader:: `ReaderYaml`
+
+See link:../../../../../../../../doc/how-to-write-a-reader.adoc[How to Write a Reader] for the general architecture.
+
+== Content Types
+
+[cols="1,1,1"]
+|===
+| YAML syntax | Parser callback | Block boundary
+
+| `# comment`
+| `onLineComment`
+| Isolated block — subject resets after each comment
+
+| `key: value`
+| `onValue`
+| No block — subject persists across consecutive value lines
+
+| `- item`
+| `onListItem`
+| No block — subject persists across consecutive list items
+
+| `key: \|` or `key: >`
+| `onBlockScalar`
+| Isolated block — all lines inside the scalar form one block
+|===
+
+== Key Stripping
+
+Only the _value_ portion of a `key: value` pair is passed to `AbstractSourceReader`.
+Passing the full line would make the key part of the triple subject.
+
+[source]
+----
+person: Alice .. knows .. Bob   →  "Alice .. knows .. Bob"
+----
+
+The parser finds the first `": "` separator and takes everything after it.
+
+== Value Cleaning (`YamlParser.clean()`)
+
+Before the value reaches `AbstractSourceReader`, two additional cleanups are applied:
+
+. **Inline comments** — strip everything from ` #` onward: +
+  `Alice .. knows .. Bob  # annotation` → `Alice .. knows .. Bob`
+. **Surrounding quotes** — strip matching `"..."` or `'...'` wrappers: +
+  `"Alice .. knows .. Bob"` → `Alice .. knows .. Bob`
+
+`clean()` is a package-visible static helper also used for list-item values.
+
+== Block Scalar Collection (Indentation-Tracked)
+
+YAML block scalars (`|` literal, `>` folded) introduce multi-line values delimited by indentation rather than explicit closing markers.
+
+Detection: a key whose value matches `[|>][+\-]?\d*` (e.g. `|`, `|-`, `>2`) starts a block scalar.
+Collection: lines with indentation strictly greater than the key's column are gathered.
+Termination: a line at the same or lower indentation ends the scalar; end-of-file also flushes the block.
+
+[source,yaml]
+----
+notes: |
+  S1 .. P1 .. O1
+  .. P2 .. O2        ← continuation works because both lines are in the same block
+next-key: value      ← lower indent → block ended before this line is processed
+----
+
+== Subject Persistence
+
+`key: value` pairs and `- list` items use no block boundary, so the subject set by one line persists into the next:
+
+[source,yaml]
+----
+person: Alice .. knows .. Bob   # sets subject = Alice
+data: .. knows .. Carol         # continuation: uses Alice
+----
+
+`#` comments, however, are isolated blocks — a comment never shares subject scope with adjacent value lines.
+
+
+== Impl
+Reads YAML 1.0, 1.1 or 1.2 files
+
+Uses link:https://bitbucket.org/snakeyaml/snakeyaml-engine[]
+

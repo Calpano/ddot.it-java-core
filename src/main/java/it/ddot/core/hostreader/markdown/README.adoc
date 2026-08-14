@@ -1,0 +1,45 @@
+= Markdown Reader
+:icons: font
+
+Extensions:: `.md`, `.markdown`
+Kind:: `"markdown"`
+Parser:: `MarkdownParser`
+Reader:: `ReaderMarkdown`
+
+See link:../../../../../../../../doc/how-to-write-a-reader.adoc[How to Write a Reader] for the general architecture.
+
+== Content Types
+
+[cols="1,1,1"]
+|===
+| Markdown syntax | Parser callback | Block boundary
+
+| `<!-- ... -->`
+| `onHtmlComment`
+| Isolated block — subject resets after the comment
+
+| ```` ``` ```` ... ```` ``` ```` or `~~~` ... `~~~`
+| `onCodeBlock`
+| Isolated block — fenced code treated as triples
+
+| `## Title {#id .class}`
+| `onSectionAttributes`
+| Ignored by Reader — attributes not forwarded as triples
+
+| Body text
+| `onPlainLine`
+| No block — subject persists across consecutive plain lines
+|===
+
+== Extraction Notes
+
+* HTML comments may be single-line (`<!-- text -->`) or multi-line; the `<!--` / `-->` delimiters are stripped.
+* Fenced code blocks are opened by 3+ backticks or tildes; the fence character of the opening line determines the closing fence character (backtick fence is closed by backtick fence, not tilde).
+* `onSectionAttributes` fires only for headings carrying `{...}` attribute syntax.
+  The Reader currently ignores this callback — attributes do not contribute triples.
+* `onPlainLine` delivers the raw line; no stripping is applied to body text.
+
+== Pitfall: Headings with inline triple-like syntax
+
+A heading like `## S1 .... O1` contains four dots, which `parseLine` will interpret as an untyped triple.
+Avoid using triple syntax (`..` or `....`) in heading text that should not produce triples.

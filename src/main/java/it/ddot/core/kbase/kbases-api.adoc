@@ -1,0 +1,211 @@
+= The K-API: ddot.it knowledge model
+:icons: font
+:toc:
+:toclevels: 3
+
+The `it.ddot.core.kbase` package defines the *K-API* — the public,
+implementation-agnostic model of the ddot.it knowledge server ("kserver"). Every
+type is prefixed `K` (for *knowledge*) or `IK` for its interface.
+
+This document explains the parts, their purpose, and how the API fits together.
+For an inventory of operations present in the reference `cc-kg` API but *not* here,
+see link:migrate.adoc[migrate.adoc].
+
+== Purpose
+
+A *knowledge base* holds one or more *graphs*. A graph is a set of *nodes* and
+*edges* carrying multi-lingual labels, arbitrary JSON data, attached resources,
+and *provenance* (which source file/line each item came from). The model is built
+to be:
+
+* *Ingested* from text sources (Markdown, AsciiDoc, HTML, …) one triple at a time
+  via `ITripleEvent`.
+* *Queried* by SPO pattern, conjunctive query, or JSON-data predicate.
+* *Round-tripped* to/from Connected JSON and a flat triple view.
+* *Updated per-source* — re-importing a file removes only what that file
+  contributed (see <<provenance>>).
+
+The default realization is in-memory, in `it.ddot.core.kbase.inmem`.
+
+== The parts
+
+[cols="1,1,3",options="header"]
+|===
+| Interface | Impl (mem) | Role
+
+| `IKnowledgeBase`     | `Kbase`   | A named collection of graphs + a document-level `@context` namespace map.
+| `IKnowledgeGraph`    | `Kgraph`  | One graph: nodes + edges, with query, pattern, type, merge and inference operations.
+| `IKnowledgeItem`     | `Kitem`   | Common supertype of node and edge: label, JSON `data`, `IKnowledgeItemResource`, `IMeta`, source locations.
+| `IKnowledgeNode`     | `Knode`   | A node — an item with a stable, graph-unique `id()`.
+| `IKnowledgeEdge`     | `Kedge`   | An edge — connects nodes through a list of `Kendpoint`s (n-ary, see <<edges>>).
+| `IKnowledgeLabel`    | `Klabel`  | A multi-lingual label: an ordered list of value/language entries.
+| `IKnowledgeItemResource`  | `kserver.resource.*` | Content attached to an item (file, archive entry, inline text/binary, remote URL).
+| `IMeta`      | (read view) | Optional key/value metadata on a triple/item (e.g. `since -> 2025`).
+| `Kendpoint`  | `Kendpoint` | One edge↔node connection: direction (`in`/`out`/`undir`), the node, an optional type node.
+| —            | `KnowledgeBases`  | Static helpers: Connected JSON `toCj`/`fromCj`/`importCj`, `loadFromConnectedJson`.
+| `IDdotItKnowledgeBase`| `DdotItBaseOnKbase` | A flat (subject/relation/object) facade over a base, for CLI tools.
+| `ITripleEvent` | `triple.TripleEvent*` | The event a reader emits per recognized triple; the streaming ingress.
+|===
+
+== Identity model
+
+Node identity is by `id()`, and by convention *`id == text`*: the subject,
+predicate and object nodes are created (or reused) with their text as id. A node's
+`label` *defaults* to its id but may be set independently (labels are allowed to
+collide — two entities can share the display name "Mercury"). Because ids are the
+text, `Constant("Alice")` pattern queries hit the SPO index directly and the index
+is human-readable.
+
+[[edges]]
+== Edges are hyperedges
+
+An edge does **not** have a fixed source/target pair. It holds a list of
+`Kendpoint`s, each with:
+
+* a `Kdirection` — `in`, `out`, or `undir`,
+* the participating `Knode`,
+* an optional *type* node (the predicate/role).
+
+An ordinary binary triple `S –P→ O` is just the two-endpoint case: an `in`
+endpoint on `S` and an `out` endpoint on `O`, both typed by the predicate node
+`P`. `Kgraph.biEdge(s, p, o)` builds exactly this and returns the `Kedge` so
+callers can attach data or provenance. Representing edges this way means n-ary
+("hyper") edges need no separate type.
+
+The graph maintains an *SPO index* (`subject → predicate → object → edges`) so
+pattern lookups are fast. Derived from each edge:
+
+* *subject* = id of the `in` endpoint's node,
+* *predicate* = type id of the `in` endpoint, else `"links to"`,
+* *object* = id of the `out` endpoint's node.
+
+== Labels, data, resources, meta
+
+* *Label* (`IKnowledgeLabel`): ordered value/language entries; the first is the primary
+  display label. `addLabelWithoutLanguage` is idempotent.
+* *Data* (`IJsonValue data`): arbitrary JSON on any item. Queryable via
+  `nodesMatchingData` / `edgesMatchingData`.
+* *Resource* (`IKnowledgeItemResource`): inline (`content()`) or referenced (`location()`)
+  content — file, archive entry, inline text/binary, or remote URL. Built via the
+  `IResource.*` static factories.
+* *Meta* (`IMeta`): read-only key/value pairs. In the mem impl, `Kitem.meta()` is
+  a *view* derived from the item's `data` under the `meta` key — it is not a
+  separately stored field.
+
+[[provenance]]
+== Provenance and per-source update
+
+Every `IKnowledgeItem` carries `sourceLocations()` — a list of `ISourceLocation`
+(`resourceUri` + `lineNumber`). During ingestion, `TripleEvent2Kgraph` records the
+triple's location on:
+
+* the *edge*, and
+* *both endpoint nodes* (subject and object).
+
+The *predicate* node is intentionally left provenance-free, so shared vocabulary
+(`knows`, `links to`) is never swept away by a source removal. Entries are
+deduplicated by `(resourceUri, lineNumber)` via `IKitem.addSourceLocation`, so
+re-reading a file does not accumulate duplicates.
+
+=== Updating a single source
+
+To update a file with new data, run the two-step "remove then re-read":
+
+[source,java]
+----
+IKgraph.RemoveBySourceResult r = kgraph.removeBySource("file:/README.md");
+// ... re-read the new file contents through the normal reader pipeline ...
+kgraph.inference(); // regenerate still-valid inferences
+----
+
+`removeBySource(resourceUri)` drops that source's provenance from every node and
+edge, then:
+
+* deletes any item that *had* such provenance and is now left with *no* source
+  locations (it came solely from this file),
+* keeps items that still carry provenance from another source ("if an entity had
+  other provenance it remains"),
+* leaves untouched items that never had provenance (e.g. predicate nodes),
+* discards *all inferred edges* (their premises may have been removed) — hence the
+  `inference()` re-run afterwards.
+
+Because a node referenced by a surviving edge keeps that edge's provenance, it is
+never wrongly emptied. The returned `RemoveBySourceResult(edgesRemoved,
+nodesRemoved, inferredEdgesRemoved)` reports what changed.
+
+NOTE: `removeBySource` is the *core primitive*; composing it with the re-read
+(resolving the `ISourceReader` and `ISourceResourceAddress` for the file) is done
+by the calling application.
+
+== Ingestion pipeline
+
+[source,text]
+----
+source text ──(reader)──▶ ISourceHandler.onLine ──▶ Source2TripleEvents
+            ──ITripleEvent──▶ TripleEvent2Kgraph ──▶ Kgraph (nodes + edges + provenance)
+----
+
+* `ITripleEvent` is the unit of ingestion: `from()`, optional `type()` (null =
+  `"links to"`), `to()`, optional `IMeta`, and an `ISourceLocation`.
+* `Source2TripleEvents` parses ddot.it line grammar (`S .. P .. O`, `S .... O`,
+  `,, ..key.. value` meta, `ddot.it/block` literals, `ddot.it/on|off` regions)
+  into events.
+* `TripleEvent2Kgraph` turns each event into the real `biEdge(from, predicate,
+  to)` and records provenance.
+
+== Query API
+
+Three complementary ways to query a graph:
+
+. *SPO pattern* — `Kgraph.pattern(Pattern)`. A `Pattern(Slot s, Slot p, Slot o)`
+  where each `Slot` is one of:
++
+[cols="1,3",options="header"]
+|===
+| Slot | Matches
+| `Constant(v)`  | exactly `v` (index hit)
+| `Variable(n)`  | anything (binds `n`)
+| `OneOf(set)`   | any value in `set`
+| `Prefix(p)`    | values starting with `p` (case-insensitive; also matches labels)
+| `Initials(i)`  | values whose word-initials spell `i` (e.g. `"wa"` → `"works at"`)
+|===
++
+. *Conjunctive query* — `Kgraph.query(Query)` evaluates a list of patterns sharing
+  `Variable` bindings (greedy join ordering) and returns `QueryResult` (a list of
+  `Match` binding maps).
+. *JSON-data query* — `nodesMatchingData` / `edgesMatchingData` filter by a
+  `JsonQueryEngine.JsonQuery` over the item's `data`.
+
+== Types and inference
+
+Types are modeled as ordinary edges, not a separate field:
+
+* `addTypeId(node, typeId)` / `addTypeName(node, name)` add a `"has type"` edge
+  (`IKgraph.HAS_TYPE`) to a type node.
+* `findNodesByType(typeId)` / `removeType(node, typeId)` read and remove them.
+
+`inference()` applies sub-type transitivity — `A type S`, `T has-subtype S` ⟹
+`A type T` — adding the derived edges, which are flagged *inferred* (so
+`removeBySource` can discard them). The rule set is currently a single inlined
+rule.
+
+== Conversion / interchange
+
+* *Connected JSON* — `Kbases.toCj(Kbase|IKgraph)` and
+  `fromCj` / `importCj` / `loadFromConnectedJson` provide full export/import.
+  `IKgraph.exportToCj()` delegates here.
+* *Flat triple view* — `IDdotItKnowledgeBase` exposes the base as plain
+  `Triple(subject, relation, object)` values with prefix queries and
+  `loadTripleEvents` / `saveAsTripleEvents` (JSON-lines form, one object per
+  line). Intended for CLI tools.
+
+== Implementation notes
+
+* The mem impl `Kgraph` synchronizes structural mutations (`addNode`, `addEdge`,
+  `removeNode`, `removeEdge`, `biEdge`, `getOrCreateNodeWithIdAndLabel`,
+  `removeBySource`) on the instance, so concurrent writers (e.g. a multi-threaded
+  indexer) cannot corrupt the collections or SPO index. *Reads are not guarded* —
+  callers must establish a happens-before barrier before querying a concurrently
+  written graph.
+* A persistent/DB-backed impl is anticipated (see the `IMPROVE` note in
+  `Kgraph`); the `IK*` interfaces exist to keep callers off the mem types.

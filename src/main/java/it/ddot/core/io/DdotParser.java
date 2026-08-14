@@ -3,13 +3,14 @@ package it.ddot.core.io;
 import it.ddot.core.DdotSlot;
 import it.ddot.core.DdotVocabulary;
 import it.ddot.core.event.DdotEvent;
-import it.ddot.core.event.IDdotTriple;
 import it.ddot.core.event.IMetaPair;
 import it.ddot.core.event.Meta;
+import it.ddot.core.io.handler.Source2TripleEvents;
 import it.ddot.core.source.ISnippet;
 import it.ddot.core.source.ISourceLocation;
 import it.ddot.core.source.ISourceResourceAddress;
 import it.ddot.core.source.Snippet;
+import it.ddot.core.token.Commands;
 import it.ddot.core.token.DdotTokenizer;
 import it.ddot.core.token.PreCommand;
 import it.ddot.core.token.Token;
@@ -32,7 +33,7 @@ public class DdotParser {
         @Nullable String subject;
         /**
          * A QuadDot line skips the relation slot entirely, so the slot keeps this default: an untyped link is
-         * reported as {@link DdotVocabulary#LINKS_TO}, never as a null relation (see {@link IDdotTriple#type()}).
+         * reported as {@link DdotVocabulary#LINKS_TO}, never as a null relation (see {@link it.ddot.core.event.IDdotTriple#type()}).
          */
         @NonNull String relation = DdotVocabulary.LINKS_TO;
         @Nullable String object;
@@ -59,7 +60,10 @@ public class DdotParser {
      * marked ({@code ?end=}) block survive, and are recovered from the gaps in the verbatim token line numbers — the
      * unmarked form cannot produce such a gap, because a blank line ends it.
      */
-    private static Map<Integer, String> collectBlockBodies(String[] lines, List<List<Token>> byLine, Set<Integer> consumed) {
+    /** Block bodies by opener line, plus whether the last opener never got its terminator. */
+    private record Blocks(Map<Integer, String> bodies, boolean endsOpen) {}
+
+    private static Blocks collectBlockBodies(String[] lines, List<List<Token>> byLine, Set<Integer> consumed) {
         Map<Integer, String> bodies = new HashMap<>();
         int openerLine = -1;
         boolean marked = false;
@@ -107,7 +111,10 @@ public class DdotParser {
             }
         }
         if (openerLine >= 0) bodies.put(openerLine, orEmpty(join(lines, firstBodyLine, lastBodyLine)));
-        return bodies;
+        // openerLine still set == no terminator arrived. A streaming caller must keep buffering: more
+        // lines may still belong to this block. Reported from HERE rather than recomputed by a second
+        // scan, so the two can never disagree about what an open block is.
+        return new Blocks(bodies, openerLine >= 0);
     }
 
     private static void flushMetaText(DdotEvent event, List<String> lines) {
@@ -172,14 +179,65 @@ public class DdotParser {
      * inside a host-level `!!off` … `!!on` region (see {@link DdotTokenizer#tokenize(String, boolean)}).
      */
     public static List<DdotEvent> parse(String text, String sourceKind, String sourceUri, boolean startExcluded) {
+        return parse(text, new Snippet(sourceKind, ISourceLocation.of(ISourceResourceAddress.of(sourceUri), 1)),
+                startExcluded, 1);
+    }
+
+    /**
+     * Parse a CHUNK of a larger source: {@code snippet} is reported verbatim on every event, and
+     * {@code firstLineNumber} is the 1-based line number that {@code text}'s first line has in that
+     * source, so events carry document line numbers rather than chunk-relative ones.
+     *
+     * <p>This is the entry point {@link Source2TripleEvents} uses, which is
+     * how the streaming {@code ISourceHandler} path and the whole-text path stay one grammar rather
+     * than two implementations that drift (they did: the hand-rolled one never learned `;;`).
+     */
+    public static List<DdotEvent> parse(String text, ISnippet snippet, boolean startExcluded, int firstLineNumber) {
+        return parse(text, snippet, startExcluded, firstLineNumber, null);
+    }
+
+    /**
+     * As above, with {@code initialSubject} already in scope — the subject a host reader established out of
+     * band (a section heading, say) before this chunk's first line, so the chunk may open with a
+     * continuation line.
+     */
+    public static List<DdotEvent> parse(String text, ISnippet snippet, boolean startExcluded, int firstLineNumber,
+                                        @Nullable String initialSubject) {
+        return parseChunk(text, snippet, startExcluded, firstLineNumber, initialSubject).events();
+    }
+
+    /**
+     * The events in {@code text}, plus whether it ENDS with a construct still open — a `,,` block with no
+     * closing `,,`, or a `!!block` with no terminator.
+     *
+     * <p>A streaming caller needs that flag to know when it may emit. Such a construct can retract the
+     * triple that opened it (an unterminated `,,` block produces no triple at all), so a line inside one
+     * cannot be turned into an event until more text arrives; a chunk that ends closed, on the other
+     * hand, is final and can be emitted at once. {@link Source2TripleEvents}
+     * uses this to stream line by line without keeping a grammar of its own.
+     *
+     * @param events events for the constructs that ARE closed; when {@code endsOpen} is true the open
+     *               one contributes nothing yet and its lines must be re-submitted with what follows
+     */
+    /**
+     * @param endSubject the subject in scope after the last line — which a chunk can establish WITHOUT
+     *                   emitting anything, e.g. a `!!block` filling the subject slot. A streaming caller
+     *                   must carry it, or the continuation line that follows has no subject.
+     */
+    public record Chunk(List<DdotEvent> events, boolean endsOpen, boolean endsExcluded,
+                        @Nullable String endSubject) {}
+
+    public static Chunk parseChunk(String text, ISnippet snippet, boolean startExcluded, int firstLineNumber,
+                                   @Nullable String initialSubject) {
         String[] lines = text.split("\n", -1);
         List<List<Token>> byLine = groupByLine(DdotTokenizer.tokenize(text, startExcluded), lines.length);
 
         Set<Integer> consumed = new HashSet<>();
-        Map<Integer, String> blockBodies = collectBlockBodies(lines, byLine, consumed);
+        Blocks blocks = collectBlockBodies(lines, byLine, consumed);
+        Map<Integer, String> blockBodies = blocks.bodies();
 
         List<DdotEvent> events = new ArrayList<>();
-        String currentSubject = null;
+        String currentSubject = initialSubject;
         DdotEvent openMetaEvent = null;   // the event a `,,` block is filling
         DdotEvent lastEvent = null;
         // Pairs and notes mix freely in a `,,` block, in written order. A note spans as many
@@ -187,9 +245,19 @@ public class DdotParser {
         // so text lines are buffered here and joined into one `text` entry; a pair line — or the
         // closing `,,` — ends the run and the next text line starts a second note.
         List<String> metaTextLines = new ArrayList<>();
+        // Whether an `!!off` region is still open at the end. The tokenizer emits a COMMAND token for a
+        // marker wherever it stands — including inside a host comment — so reading it back off the
+        // tokens is what lets a streaming caller carry the state without re-deriving the rule.
+        boolean endsExcluded = startExcluded;
 
         for (int i = 0; i < lines.length; i++) {
             List<Token> toks = byLine.get(i);
+            for (Token tok : toks) {
+                if (!tok.tokenName().equals(TokenName.COMMAND)) continue;
+                String cmd = Commands.normalizeCommandToken(tok.text());
+                if (PreCommand.OFF_CMD.matcher(cmd).matches()) endsExcluded = true;
+                else if (PreCommand.ON_CMD.matcher(cmd).matches()) endsExcluded = false;
+            }
             // A blank line ABORTS an open (unmarked) `,,` block: all its lines,
             // the opening triple line included, become NotATriple. Blank lines
             // consumed as a `!!block` terminator are part of that block's
@@ -205,7 +273,7 @@ public class DdotParser {
             // `!!off` … `!!on`: the directives and everything between them are
             // processed by the reader and never emitted (developer guide).
             if (toks.getFirst().tokenName().equals(TokenName.EXCLUDED)) continue;
-            if (toks.getFirst().tokenName().equals(TokenName.COMMAND) && PreCommand.OFF_CMD.matcher(toks.getFirst().text()).matches()) {
+            if (toks.getFirst().tokenName().equals(TokenName.COMMAND) && PreCommand.OFF_CMD.matcher(Commands.normalizeCommandToken(toks.getFirst().text())).matches()) {
                 // `!!off` opens a new snippet: the subject register does NOT
                 // survive it (parsing-procedure: `mode = OFF; subject = null`),
                 // and neither does the "previous triple" a `,,` could attach to.
@@ -222,7 +290,7 @@ public class DdotParser {
             // An `!!on` directive line (the tokenizer emits only the command and
             // its optional param for it). An `!!on`-shaped SUBJECT of a real
             // triple line is not a directive here — it has slot tokens too.
-            if (toks.getFirst().tokenName().equals(TokenName.COMMAND) && PreCommand.ON_CMD.matcher(toks.getFirst().text()).matches() && toks.stream().allMatch(t -> t.tokenName().equals(TokenName.COMMAND) || t.tokenName().equals(TokenName.COMMAND_PARAM)))
+            if (toks.getFirst().tokenName().equals(TokenName.COMMAND) && PreCommand.ON_CMD.matcher(Commands.normalizeCommandToken(toks.getFirst().text())).matches() && toks.stream().allMatch(t -> t.tokenName().equals(TokenName.COMMAND) || t.tokenName().equals(TokenName.COMMAND_PARAM)))
                 continue;
 
             // A `,,` alone on a line opens a metadata block for the preceding
@@ -269,9 +337,7 @@ public class DdotParser {
             String from = currentSubject;
             if (from == null) continue;   // no subject in scope: not a triple
 
-            ISourceLocation sourceLoc = ISourceLocation.of(ISourceResourceAddress.of(sourceUri), 1);
-            ISnippet snippet = new Snippet(sourceKind, sourceLoc);
-            DdotEvent event = new DdotEvent(snippet, from, parsed.relation, parsed.object, i + 1);
+            DdotEvent event = new DdotEvent(snippet, from, parsed.relation, parsed.object, firstLineNumber + i);
             event.addMeta(parsed.meta);
             events.add(event);
             lastEvent = event;
@@ -283,13 +349,18 @@ public class DdotParser {
         // opened it and every accumulated meta line — fails to derive and all
         // its lines are NotATriple. (Highlighters may render on; the EVENT
         // stream must not.)
+        boolean endsOpen = openMetaEvent != null;
         if (openMetaEvent != null) {
             events.remove(openMetaEvent);
             metaTextLines.clear();
         }
+        // A `!!block` whose terminator has not arrived is open for the same reason: its body, and so the
+        // object of the triple that opened it, is not yet known.
+        if (blocks.endsOpen()) endsOpen = true;
 
-        return events;
+        return new Chunk(events, endsOpen, endsExcluded, currentSubject);
     }
+
 
     /**
      * Replay the tokenizer's phase transitions across one line's tokens and read the slot values back out.

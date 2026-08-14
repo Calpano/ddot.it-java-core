@@ -1,0 +1,5 @@
+= Attribute Test
+:product: Acme Widget
+:version: 2.0
+
+Welcome to {product} version {version}.

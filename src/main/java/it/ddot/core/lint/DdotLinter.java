@@ -1,6 +1,5 @@
 package it.ddot.core.lint;
 
-import it.ddot.core.io.DdotWriter;
 import it.ddot.core.token.Commands;
 import org.jspecify.annotations.Nullable;
 
@@ -19,7 +18,7 @@ import java.util.regex.Pattern;
  * transform is exactly the mapping specified there: <em>parse the recognised triple on a line, re-emit in the
  * canonical {@code S ..P.. O} / {@code S .... O} / {@code ,, ..k.. v} spelling, splice back</em> — reusing the
  * same canonical spelling as
- * {@link DdotWriter}.
+ * {@link it.ddot.core.io.DdotWriter}.
  *
  * <h2>Hard invariants (see the unit tests)</h2>
  * <ul>
@@ -33,7 +32,7 @@ import java.util.regex.Pattern;
  * </ul>
  *
  * <h2>Line grammar</h2>
- * The recogniser mirrors {@code com.calpano.ddot.it.source.handler.Source2TripleEvents} (artifact {@code ddotit-javalib}) exactly — the
+ * The recogniser mirrors {@code it.ddot.core.source.handler.Source2TripleEvents} (artifact {@code ddotit-javalib}) exactly — the
  * {@link #TRIPLE_LINE} regex, the "exactly two {@code ..} separators / object-may-contain-{@code ..}" rule, the
  * first-{@code ,,} metadata split, the {@code !!off}/{@code !!on} and {@code !!block} handling — so a line the
  * reader ingests is exactly a line the linter reformats, and a line the reader drops is left as prose.
@@ -47,7 +46,7 @@ public final class DdotLinter {
 
     /**
      * A legal ddot.it triple line — <b>copied verbatim from
-     * {@code com.calpano.ddot.it.source.handler.Source2TripleEvents} (artifact {@code ddotit-javalib})</b> and MUST stay in sync with it, so the
+     * {@code it.ddot.core.source.handler.Source2TripleEvents} (artifact {@code ddotit-javalib})</b> and MUST stay in sync with it, so the
      * linter recognises exactly the lines the reader ingests. Exactly two structural {@code ..} separators;
      * subject and relation contain no {@code ..}; the object is the remainder and must start with a non-dot.
      */

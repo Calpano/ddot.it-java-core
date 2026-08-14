@@ -1,0 +1,88 @@
+= MarkDown
+:toc:
+
+== Import a whole file
+A) Name the file FOO.md where FOO is interpreted as a node id.
+
+B) Give node id in frontmatter.
+
+.Example for a short markdown file using frontmatter to map to a node by id
+----
+---
+node: concept-123
+---
+
+# Introduction to Knowledge Graphs
+
+A knowledge graph represents entities and their relationships in a structured format.
+
+## Key Concepts
+
+Knowledge graphs consist of nodes (entities) and edges (relationships) that form a semantic network.
+
+## Benefits
+
+- Easy to query and traverse
+- Flexible schema
+- Rich semantic context
+----
+
+== Mapping Sections
+Options for Section-Level Metadata
+We need to be able to address existing node ids in a graph.
+
+HTML Comments::
+Use HTML comments before H2 sections to specify node metadata: `<!-- node: concept-456, type: definition -->`
+
++
+----
+# Main Document
+Foo bar bla
+
+<!-- node: concept-456, type: definition -->
+## What is a Knowledge Graph
+A knowledge graph is a structured representation of knowledge.
+----
+
+Meta Block::
+Define a special metadata block at the start of each H2 section using a fenced code block with type `meta`.
+
++
+----
+# Main Document
+Foo bar bla
+
+```meta
+node: concept-123
+```
+## What is a Knowledge Graph
+A knowledge graph is a structured representation of knowledge.
+----
+
+Link Mapping::
+Use Markdown link references with metadata at the end of file: `[section-name]: # (node-id: concept-789)`
+
+Frontmatter Mapping::
+Extend frontmatter with a `sections` mapping that associates H2 headings with node ids
+
+Custom Attributes::
+Use custom Markdown attributes/annotations if processor supports them: `## Section {#node-123 .concept}`. See Markdown Extra, Pandoc, and Kramdown. Defines CSS ID and classes.
+
++
+.Supported By:
+- Pandoc (The universal converter)
+- Hugo (via Goldmark with attribute extension enabled)
+- Jekyll (via Kramdown)
+- PHP Markdown Extra
+
++
+.EBNF Syntax
+--
+- HEADER := `#`+ __SectionName__ `{` ATTRIBUTES `}`
+- ATTRIBUTES := ID | CLASS | ATTRIBUTE
+- ID := `#` __IdValue__
+- CLASS := `.` __ClassName__
+- ATTRIBUTE := __AttName__ `=` __AttValue__
+--
+
+We support either HTML Comments (`node:` or `node=`) or Custom Attributes (`#` or `node=`).

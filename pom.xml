@@ -11,7 +11,7 @@
     -->
     <groupId>it.ddot</groupId>
     <artifactId>ddotit-core</artifactId>
-    <version>0.2.1</version>
+    <version>0.2.2-SNAPSHOT</version>
     <packaging>jar</packaging>
 
     <name>ddot.it core</name>
@@ -32,12 +32,8 @@
     </properties>
 
     <dependencies>
-        <!-- THE ONLY compile-scope dependency this module may ever have. -->
-        <dependency>
-            <groupId>org.jspecify</groupId>
-            <artifactId>jspecify</artifactId>
-            <version>${jspecify.version}</version>
-        </dependency>
+<dependency><groupId>org.jspecify</groupId><artifactId>jspecify</artifactId><version>${jspecify.version}</version></dependency>
+<dependency><groupId>com.graphinout</groupId><artifactId>base-api</artifactId><version>0.2.2-SNAPSHOT</version></dependency>
 
         <!-- Testing (test scope only; never on a consumer's classpath) -->
         <dependency>
@@ -63,18 +59,31 @@
             </plugin>
 
             <!--
-              Mechanically enforces "ddot-core depends on jspecify and nothing else".
+              Guards the BUILD CYCLE, which is the invariant that actually has teeth.
 
-              Rule 1 (bannedDependencies): bans EVERY compile/runtime/provided/system-scope artifact, then
-              re-allows exactly org.jspecify:jspecify. The 5th segment of the pattern is the scope, so
-              test-scope artifacts (junit, truth and their transitives) are untouched — they never reach a
-              consumer's classpath and so cannot re-introduce the graphinout cycle.
+              This used to enforce "ddot-core depends on jspecify and nothing else". That claim died
+              when the Kbase/Kgraph model moved in from ddotit-javalib: it is built on graphinout's
+              JSON document types, so ddot-core now has a compile dependency on com.graphinout:base-api
+              and, transitively, the foundation-* modules, jackson and slf4j. A rule asserting the old
+              invariant could only fail, so it is gone rather than skipped — a permanently-skipped
+              rule teaches everyone to pass -Denforcer.skip and hides the one below with it.
 
-              Rule 2 (banTransitiveDependencies): no transitive dependency may sneak in via a future direct
-              dependency; test-scope trees are excluded for the same reason.
+              What must still hold is acyclicity. graphinout's reader-ddot depends on ddot-core, so
+              ddot-core may only depend on graphinout modules that sit BELOW reader-ddot in the stack:
 
-              If either rule fires, the build fails here rather than silently closing the
-              reader-ddot -> ddot-core -> graphinout:base cycle downstream.
+                  base-api, foundation-*   ->  ddot-core  ->  base  ->  reader-ddot
+
+              base-api and the foundation-* modules do not depend on ddot-core, so that chain is a DAG
+              and builds in the order shown. Reaching for com.graphinout:base itself — or any reader,
+              the engine, or the cli — closes the loop and makes the two repositories unbuildable from
+              a clean ~/.m2. The rule below is exactly that line: every com.graphinout artifact is
+              banned, and only the below-the-line modules are re-allowed.
+
+              The 5th pattern segment is the scope, so test-scope trees stay untouched: they never
+              reach a consumer's classpath and so cannot form the cycle.
+
+              banTransitiveDependencies is likewise gone — base-api legitimately brings a transitive
+              tree now, so the rule cannot be satisfied.
             -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
@@ -82,7 +91,7 @@
                 <version>3.6.3</version>
                 <executions>
                     <execution>
-                        <id>ddot-core-must-stay-dependency-free</id>
+                        <id>ddot-core-must-not-close-the-graphinout-cycle</id>
                         <phase>validate</phase>
                         <goals>
                             <goal>enforce</goal>
@@ -92,28 +101,26 @@
                                 <bannedDependencies>
                                     <searchTransitive>true</searchTransitive>
                                     <message>
-                                        ddot-core must have NO compile/runtime dependency other than
-                                        org.jspecify:jspecify. Anything else (graphinout, jackson, slf4j, ...)
-                                        belongs in ddotit-javalib.
+                                        ddot-core may depend only on graphinout modules that sit BELOW
+                                        reader-ddot: base-api and foundation-*. graphinout's reader-ddot
+                                        depends on ddot-core, so depending on com.graphinout:base (or any
+                                        reader / engine / cli) closes a build cycle and makes both
+                                        repositories unbuildable from a clean ~/.m2.
                                     </message>
                                     <excludes>
-                                        <exclude>*:*:*:*:compile</exclude>
-                                        <exclude>*:*:*:*:runtime</exclude>
-                                        <exclude>*:*:*:*:provided</exclude>
-                                        <exclude>*:*:*:*:system</exclude>
+                                        <exclude>com.graphinout:*:*:*:compile</exclude>
+                                        <exclude>com.graphinout:*:*:*:runtime</exclude>
+                                        <exclude>com.graphinout:*:*:*:provided</exclude>
+                                        <exclude>com.graphinout:*:*:*:system</exclude>
                                     </excludes>
                                     <includes>
-                                        <include>org.jspecify:jspecify:*:*:compile</include>
+                                        <include>com.graphinout:base-api:*:*:compile</include>
+                                        <include>com.graphinout:foundation-pure:*:*:compile</include>
+                                        <include>com.graphinout:foundation-jvm:*:*:compile</include>
+                                        <include>com.graphinout:foundation-shared:*:*:compile</include>
+                                        <include>com.graphinout:foundation-emulation:*:*:compile</include>
                                     </includes>
                                 </bannedDependencies>
-                                <banTransitiveDependencies>
-                                    <message>
-                                        ddot-core must not acquire transitive compile/runtime dependencies.
-                                    </message>
-                                    <excludes>
-                                        <exclude>*:*:*:*:test</exclude>
-                                    </excludes>
-                                </banTransitiveDependencies>
                             </rules>
                             <fail>true</fail>
                         </configuration>

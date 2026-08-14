@@ -1,61 +1,108 @@
-= ddot.it Java core
+= Ddot.it Java Core
 Max Völkel <mv@maxvoelkel.de>
 :toc:
 :icons: font
 :url-spec-repo: https://github.com/calpano/ddot.it
 :url-graphinout: https://github.com/calpano/graphinout
 
-`it.ddot:ddotit-core:0.2.1` — the ddot.it syntax and event model as a plain Java 21 jar with essentially no dependencies.
+This repo encodes the main types directly or implicitly defined in the https://ddot.it spec in Java.
 
 [[what]]
 == What is in here
 
-This artifact holds the part of the ddot.it Java library that is pure syntax and pure data model, with no knowledge of graphs, files, JSON or logging.
+.Package dependencies
+Derived from the `import` statements under `src/main/java`; javadoc-only imports (the ones in
+`package-info.java` that exist so `{@link}` resolves) are excluded. An arrow points from a package to
+one it uses. `core` is the root package `it.ddot.core` itself, holding `DdotSlot`, `DdotVocabulary`
+and `DdotSourceFormats`.
 
-.Packages
-* `com.calpano.ddot.it.core.token` — the tokenizer and its role model, the grammar itself.
-* `com.calpano.ddot.it.core.event` — the triple event as exported (`DdotEvent`, `DdotTriple`) and the exporter that produces it.
-* `com.calpano.ddot.it.core.source` — the snippet and source-location model, the resource-address abstractions a host application implements to feed ddot.it text in, and the `!!command` vocabulary.
-* `com.calpano.ddot.it.kserver` — the triple-event model (`ITripleEvent` with its from-line and inferred variants) and the metadata interface.
-* `com.calpano.ddot.it.refactor` — the ddot line serializer.
-* `com.calpano.ddot.it.core.lint` — the linter with its diagnostics, severities and line changes.
-* `com.calpano.ddot.it.render` — the standalone HTML renderer.
-* `com.calpano.ddot.it.annotation` — the `@DdotIt` marker.
+.Package Dependencies
+[plantuml]
+....
+@startuml
+skinparam packageStyle rectangle
+skinparam shadowing false
+hide empty members
+hide circles
 
-Everything that needs a knowledge graph — the Kgraph/Kbase model, the readers, the Connected JSON writer, the query engine — lives one layer up, in the link:../ddot.it-javalib[`ddot.it-javalib`] repository. So do the rewrite-rule engine, the `!!find` query DSL and the source-I/O SPI (`ISourceReader`/`ISourceHandler`).
+class core
+class token
+class event
+class source
+class ioHandler as "io.handler"
+class io
+class kbase
+class hostreader
+class html
+class lint
+class annotation
 
-.What belongs here
-A type belongs in `ddot-core` only if `reader-ddot` or the IntelliJ plugin imports it, directly or transitively. Everything else belongs in `ddot.it-javalib`, which both of them already have on their classpath. The <<invariant,zero-dependency invariant>> is what this artifact buys; each type that does not need to be here dilutes it.
+token --u> core
+core --u> source
+event --u> core
+event --u> source
+html --u> token
+io --u> core
+io --u> event
+io --u> source
+io --u> token
+lint --u> token
+kbase --u> core
+kbase --u> event
+kbase --u> io
+kbase --u> source
+ioHandler --u> core
+ioHandler --u> event
+ioHandler --u> io
+ioHandler --u> kbase
+ioHandler --u> source
+ioHandler --u> token
+hostreader --u> core
+hostreader --u> io
+hostreader --u> kbase
+hostreader --u> source
+hostreader --u> ioHandler
 
-[[invariant]]
-== The zero-dependency invariant
+@enduml
+....
 
-`ddot-core` has exactly one compile-scope dependency, `org.jspecify:jspecify`, and that dependency contributes annotations only.
-There are no transitive compile dependencies at all.
-JUnit and Truth are present, but at test scope, so they never reach a consumer's classpath.
+.Layers
+* API Layers
+** source, annotation
+** core
+** event, token
+* Impl Layers
+** html, io, lint
+** kbase
+** io.handler
+** hostreader
 
-The invariant is not a matter of taste, and it is not enforced by discipline.
-`maven-enforcer-plugin` runs in the `validate` phase with two rules: `bannedDependencies` bans every compile, runtime, provided and system-scope artifact and then re-allows exactly `org.jspecify:jspecify`, and `banTransitiveDependencies` stops anything sneaking in behind a future direct dependency.
-Both rules exclude test scope.
-Adding any other compile dependency fails the build immediately, with the message pointing at `ddot.it-javalib` as the place where it belongs.
+.API Packages
+* `it.ddot.core.annotation` — the `@DdotIt` marker. Only used when annotating Java source code directly with ddot.it text.
+* `it.ddot.core.event` — evens fired when parsing
+* `it.ddot.core.source` — the snippet and source-location model, the resource-address abstractions a host application implements to feed ddot.it text in
+* `it.ddot.core.token` — the tokenizer and its role model, the grammar itself, and the `!!command` vocabulary.
+* `it.ddot.core` — Constants
 
-[[why]]
-== Why the invariant exists
 
-The reason is a build cycle in a different repository.
+.Impl Packages
+* `it.ddot.core.hostreader` — Readers for parsing different source syntax such as AsciiDoc, Markdown, HTML, XML, and YAML. These readers emit the structure within the document as synthetic ddot.it events _plus_ the explicitly user-written ddot.it syntax.
+* `it.ddot.core.html` — helper code for rendering syntax-highlighted ddot.it syntax as HTML.
+* `it.ddot.core.io` — the main Parser and Writer
+* `it.ddot.core.kbase` — a knowledge model (a tiny queryable, in-memory triplestore)
+* `it.ddot.core.lint` — the linter with its diagnostics, severities and line changes.
 
-link:{url-graphinout}[graphinout] has a module `reader-ddot` that parses ddot.it text, and it should not reimplement the parser — it should reuse this code.
-But `reader-ddot` is a module of the graphinout reactor and depends on `com.graphinout:base`.
-So if `ddot-core` depended on graphinout, the chain `reader-ddot -> ddot-core -> com.graphinout:base` would close a cycle and neither reactor could build.
 
-Keeping `ddot-core` free of every third-party jar is what makes it safely consumable from inside graphinout's own reactor.
-That is why the enforcer rules are load-bearing rather than hygiene, and why this repository has a standalone POM with no `<parent>`: a parent could contribute `<dependencies>` and silently break the guarantee.
 
-.Consumers
+
+== Dependencies
+We try to minimize dependencies but couldn't avoid to at least require the modern Jackson 3.x libs.
+
+
+== Known Consumers
 * link:{url-graphinout}[graphinout] `reader-ddot` — the reason this artifact stands alone.
-* link:../ddot.it-javalib[`ddot.it-javalib`] — builds the knowledge-graph layer on top of this artifact.
-* link:../ddot.it-java[`ddot.it-java`] — the command-line tool.
-* link:../ddot.it-intellij[`ddot.it-intellij`] — the IntelliJ plugin.
+* link:../ddot.it-java[`ddot.it-java`] — the not-yet-released command-line tool.
+* link:../ddot.it-intellij[`ddot.it-intellij`] — the official ddot.it IntelliJ plugin.
 
 [[spec]]
 == Where the specification lives
@@ -63,14 +110,12 @@ That is why the enforcer rules are load-bearing rather than hygiene, and why thi
 This repository is an implementation, not a specification.
 
 The canonical ddot.it syntax reference, the language documentation and the conformance corpus live in the sibling repository link:{url-spec-repo}[ddot.it], checked out next to this one as `../ddot.it`.
-Its `test-data/cases` directory is the corpus that `ddot.it-javalib`'s `DdotCorpusConformanceTest` runs against; that test is the harness that decides whether an implementation conforms, and it lives with the graph layer because parsing a case end to end needs it.
+Its `test-data/cases` directory is the corpus that the `ddot.it-javalib` `DdotCorpusConformanceTest` runs against; that test is the harness that decides whether an implementation conforms, and it lives with the graph layer because parsing a case end to end needs it.
 
 [[build]]
 == Building
 
 .Commands
-* `mvn install` — compiles, runs the tests and installs `it.ddot:ddotit-core:0.2.1` into the local repository.
-* `mvn dependency:tree` — the check that matters; the compile scope must show `org.jspecify:jspecify` and nothing else.
+* `mvn install` — compiles, runs the tests and installs `it.ddot:ddotit-core` into the local repository.
 
-Java 21 or newer is required.
-The version is a release, not a snapshot, so Maven caches it forever: bump it on every content change, and update the pin in each consumer's POM in lockstep.
+Java 25 or newer is required.
