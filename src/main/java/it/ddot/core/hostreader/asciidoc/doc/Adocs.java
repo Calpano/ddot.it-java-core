@@ -55,6 +55,9 @@ public class Adocs {
 
         // Phase 3: Content blocks
         String pendingParams = null;
+        // Where the current run of [[anchor]] / [attrs] lines began, so the block they belong to can
+        // report a span that includes them. -1 when no parameters are pending.
+        int pendingParamsLine = -1;
         while (i < lines.size()) {
             String line = lines.get(i);
 
@@ -66,6 +69,7 @@ public class Adocs {
 
             // 2. Anchor [[...]]
             if (line.startsWith("[[") && line.endsWith("]]")) {
+                if (pendingParams == null) pendingParamsLine = i;
                 pendingParams = (pendingParams != null ? pendingParams : "") + line;
                 i++;
                 continue;
@@ -73,6 +77,7 @@ public class Adocs {
 
             // 3. Block attributes [...] (not [[)
             if (line.startsWith("[") && !line.startsWith("[[") && line.endsWith("]")) {
+                if (pendingParams == null) pendingParamsLine = i;
                 pendingParams = (pendingParams != null ? pendingParams : "") + line;
                 i++;
                 continue;
@@ -93,7 +98,10 @@ public class Adocs {
                 AdocDocument.Block block = new AdocDocument.Block(kind);
                 block.lines.add(line.substring(level + 1));
                 block.parameters = pendingParams;
+                block.startLine = (pendingParams != null ? pendingParamsLine : i) + 1;
+                block.endLine = i + 1;
                 pendingParams = null;
+                pendingParamsLine = -1;
                 doc.contents.add(block);
                 i++;
                 continue;
@@ -128,13 +136,17 @@ public class Adocs {
             if (fenceMarker != null) {
                 AdocDocument.Block block = new AdocDocument.Block(fenceKind);
                 block.parameters = pendingParams;
+                block.startLine = (pendingParams != null ? pendingParamsLine : i) + 1;
                 pendingParams = null;
+                pendingParamsLine = -1;
                 i++;
                 while (i < lines.size() && !lines.get(i).equals(fenceMarker)) {
                     block.lines.add(lines.get(i));
                     i++;
                 }
                 if (i < lines.size()) i++; // skip closing marker
+                // i now sits past the closing marker, or past the end of an unterminated block.
+                block.endLine = i;
                 doc.contents.add(block);
                 continue;
             }
@@ -144,7 +156,10 @@ public class Adocs {
                 AdocDocument.Block block = new AdocDocument.Block(AdocDocument.Kind.SectionHeadline);
                 block.lines.add(line.substring(1));
                 block.parameters = pendingParams;
+                block.startLine = (pendingParams != null ? pendingParamsLine : i) + 1;
+                block.endLine = i + 1;
                 pendingParams = null;
+                pendingParamsLine = -1;
                 doc.contents.add(block);
                 i++;
                 continue;
@@ -154,11 +169,14 @@ public class Adocs {
             if (line.startsWith("//")) {
                 AdocDocument.Block block = new AdocDocument.Block(AdocDocument.Kind.LineComment);
                 block.parameters = pendingParams;
+                block.startLine = (pendingParams != null ? pendingParamsLine : i) + 1;
                 pendingParams = null;
+                pendingParamsLine = -1;
                 while (i < lines.size() && lines.get(i).startsWith("//") && !lines.get(i).equals("////")) {
                     block.lines.add(lines.get(i));
                     i++;
                 }
+                block.endLine = i;
                 doc.contents.add(block);
                 continue;
             }
@@ -166,11 +184,14 @@ public class Adocs {
             // 8. Plain text — collect until blank line or block-start pattern
             AdocDocument.Block block = new AdocDocument.Block(AdocDocument.Kind.Plain);
             block.parameters = pendingParams;
+            block.startLine = (pendingParams != null ? pendingParamsLine : i) + 1;
             pendingParams = null;
+            pendingParamsLine = -1;
             while (i < lines.size() && !lines.get(i).isBlank() && !isBlockStart(lines.get(i))) {
                 block.lines.add(lines.get(i));
                 i++;
             }
+            block.endLine = i;
             doc.contents.add(block);
         }
 

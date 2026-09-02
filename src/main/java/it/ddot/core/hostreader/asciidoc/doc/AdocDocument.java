@@ -69,6 +69,16 @@ public class AdocDocument {
         /** The line between a headline and the content, e.g. `[node="concept-123"]` or `[#concept-123]` */
         @Nullable String parameters;
         List<String> lines = new ArrayList<>();
+        /**
+         * 1-based line of the first source line this block owns, counting any {@code [[anchor]]} or
+         * {@code [attrs]} lines folded into {@link #parameters}. 0 when the block was not parsed from
+         * a source document. Together with {@link #endLine} it is a contiguous span that owns its
+         * text outright, which is what lets a caller replace one block without reformatting the file
+         * around it.
+         */
+        public int startLine;
+        /** 1-based line of the last source line this block owns, inclusive. 0 when not parsed. */
+        public int endLine;
 
         public Block(Kind kind) {this.kind = kind;}
 
