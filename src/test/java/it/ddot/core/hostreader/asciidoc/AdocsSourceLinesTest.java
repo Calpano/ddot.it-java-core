@@ -101,6 +101,23 @@ class AdocsSourceLinesTest {
         assertEquals(0, block.endLine);
     }
 
+    /**
+     * The three container fences AsciiDoc has besides the verbatim ones. A bare {@code ====} is the
+     * example delimiter, not a headline — a headline is {@code ==== Text}, with a title.
+     */
+    @Test
+    void recognisesTheContainerFences() {
+        List<String> lines = List.of(
+                "= T", "", "--", "open", "--", "", "____", "quoted", "____",
+                "", "====", "example", "====", "", "==== A Headline");
+        AdocDocument doc = Adocs.parse(lines);
+        List<AdocDocument.Kind> kinds = doc.contents().stream().map(b -> b.kind).toList();
+        assertEquals(List.of(AdocDocument.Kind.Dash2, AdocDocument.Kind.Underscore4,
+                AdocDocument.Kind.Equals4, AdocDocument.Kind.H4), kinds);
+        assertEquals(List.of("open"), doc.contents().get(0).lines());
+        assertEquals(List.of("A Headline"), doc.contents().get(3).lines());
+    }
+
     private static AdocDocument.Block blockAt(int index) {
         return Adocs.parse(LINES).contents().get(index);
     }

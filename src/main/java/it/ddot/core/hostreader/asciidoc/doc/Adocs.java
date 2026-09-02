@@ -15,7 +15,8 @@ public class Adocs {
         if (line.startsWith("[[") && line.endsWith("]]")) return true;
         if (line.startsWith("[") && !line.startsWith("[[") && line.endsWith("]")) return true;
         if (line.matches("^={2,6} .+$")) return true;
-        if (line.equals("----") || line.equals("....") || line.equals("++++") || line.equals("****") || line.equals("////"))
+        if (line.equals("----") || line.equals("....") || line.equals("++++") || line.equals("****")
+                || line.equals("////") || line.equals("====") || line.equals("____") || line.equals("--"))
             return true;
         if (line.startsWith(".") && !line.startsWith("..") && line.length() > 1 && !Character.isWhitespace(line.charAt(1)))
             return true;
@@ -130,6 +131,20 @@ public class Adocs {
                 case "////" -> {
                     fenceMarker = "////";
                     fenceKind = AdocDocument.Kind.Slash4;
+                }
+                // A bare `====` is the example fence, not a headline: a headline is `==== Text`,
+                // which the pattern above requires a space and a title for.
+                case "====" -> {
+                    fenceMarker = "====";
+                    fenceKind = AdocDocument.Kind.Equals4;
+                }
+                case "____" -> {
+                    fenceMarker = "____";
+                    fenceKind = AdocDocument.Kind.Underscore4;
+                }
+                case "--" -> {
+                    fenceMarker = "--";
+                    fenceKind = AdocDocument.Kind.Dash2;
                 }
             }
 
@@ -247,6 +262,9 @@ public class Adocs {
                 case Plus4 -> writeFenced(block, "++++", w);
                 case Star4 -> writeFenced(block, "****", w);
                 case Slash4 -> writeFenced(block, "////", w);
+                case Equals4 -> writeFenced(block, "====", w);
+                case Underscore4 -> writeFenced(block, "____", w);
+                case Dash2 -> writeFenced(block, "--", w);
                 default -> {
                     // Plain, LineComment: lines written as-is
                     for (String line : block.lines) {

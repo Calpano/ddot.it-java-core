@@ -31,6 +31,19 @@ public class AdocDocument {
         /** Blocks fenced in `////` lines are commented out. */
         Slash4,
 
+        /**
+         * Open blocks, fenced in `--` lines. AsciiDoc's general-purpose container: it has no meaning
+         * of its own and takes it from the attribute above it, which is how a `[NOTE]` becomes an
+         * admonition spanning several blocks.
+         */
+        Dash2,
+
+        /** Quote blocks, fenced in `____` lines. Can contain other blocks. */
+        Underscore4,
+
+        /** Example blocks, fenced in `====` lines. Can contain other blocks. */
+        Equals4,
+
         /** Lines in pattern `.My Headline`. Semantically like a H7 */
         SectionHeadline,
 
