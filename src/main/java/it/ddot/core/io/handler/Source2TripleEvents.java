@@ -7,6 +7,7 @@ import it.ddot.core.io.DdotParser;
 import it.ddot.core.source.ISnippet;
 import it.ddot.core.io.ISourceHandler;
 import it.ddot.core.token.Commands;
+import it.ddot.core.token.DdotTokenizer;
 import org.jspecify.annotations.Nullable;
 
 import java.util.ArrayList;
@@ -118,6 +119,24 @@ public class Source2TripleEvents implements ISourceHandler {
      *                   out of a file numbers the chunk's own lines here and puts the chunk's file position into the
      *                   snippet; the two are added back together by {@link IDdotEvent#startLineInResource()}.
      */
+    /**
+     * Whether the buffer is being kept only so a `,,` or `;;` on the next line can extend the last
+     * event. An open construct is not this: that is held by {@code endsOpen} and for as long as it
+     * takes.
+     */
+    private boolean holding;
+
+    /**
+     * How many lines are waiting for the construct they belong to to close.
+     *
+     * <p>Public so the bound this class claims can be asserted rather than believed. It is bounded
+     * by the open construct, never by the document: see the streaming note above, and
+     * {@code Source2TripleEventsBufferTest}, which exists because the claim was once false.
+     */
+    public int bufferedLines() {
+        return buffered.size();
+    }
+
     @Override
     public void onLine(String line, int lineNumber) {
         if (!enabled) return;
@@ -125,6 +144,12 @@ public class Source2TripleEvents implements ISourceHandler {
         // between two ddot fences, say). Joining across it would let a `,,` block swallow the gap, so the
         // pending chunk is closed first and the new one starts its own numbering.
         if (!buffered.isEmpty() && lineNumber != bufferFirstLine + buffered.size()) flush();
+        // An event held back for a `,,` that cannot now arrive is an event that is finished. Letting
+        // it sit is what made this quadratic: the buffer is re-parsed on every line, and a statement
+        // on the first buffered line pins `keepFrom` at 0 below, so nothing is ever trimmed and each
+        // further line re-parses the whole document so far. One `a ..b.. c` at the top of a
+        // 16 000-line file took 421 seconds where the same file without it took 240 ms.
+        if (holding && !DdotTokenizer.continuesPrevious(line)) flush();
         if (buffered.isEmpty()) bufferFirstLine = lineNumber;
         buffered.add(line);
         emitSettled();
@@ -141,6 +166,9 @@ public class Source2TripleEvents implements ISourceHandler {
      */
     private void emitSettled() {
         DdotParser.Chunk chunk = parseBuffer();
+        // Set again below only if an event really is retained, so an open construct -- which is held
+        // for a different reason, and for as long as it takes -- never looks like one.
+        holding = false;
         if (chunk.endsOpen()) return;
 
         List<DdotEvent> events = chunk.events();
@@ -164,6 +192,7 @@ public class Source2TripleEvents implements ISourceHandler {
             buffered.addAll(tail);
             bufferFirstLine += keepFrom;
         }
+        holding = true;
     }
 
     /** Parse what is buffered, without consuming it. */
@@ -218,6 +247,7 @@ public class Source2TripleEvents implements ISourceHandler {
 
     /** Parse everything buffered so far and push the resulting events downstream. */
     private void flush() {
+        holding = false;
         if (buffered.isEmpty()) return;
         List<String> chunk = List.copyOf(buffered);
         buffered.clear();

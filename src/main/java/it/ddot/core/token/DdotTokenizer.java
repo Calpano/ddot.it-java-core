@@ -67,6 +67,23 @@ public final class DdotTokenizer {
      */
     private static final Pattern GATE = Pattern.compile("(?<!\\.)\\.{4}(?!\\.)" + "|" + "(?<!\\.)\\.{2}(?!\\.).*(?<!\\.)\\.{2}(?!\\.)");
 
+    /**
+     * Whether a line can still attach to the statement above it.
+     *
+     * <p>Only a leading {@code ,,} or {@code ;;} can: metadata continues the logical line before it,
+     * and it has to be the line straight after -- anything else between them breaks the chain. So a
+     * caller streaming lines can settle a triple as soon as the next line fails this, instead of
+     * holding it against a continuation that can no longer arrive.
+     *
+     * <p>Deliberately looser than {@link #META_CONTINUATION}, which also demands the {@code ..} that
+     * makes it a whole continuation. This one answers "might the next line extend it", and the cost
+     * of a false yes is one line held one line longer, while a false no would drop metadata.
+     */
+    public static boolean continuesPrevious(String line) {
+        String at = Whitespace.trimWs(line);
+        return at.startsWith(",,") || at.startsWith(";;");
+    }
+
     private DdotTokenizer() {}
 
     private static void emitBlockOpener(List<Token> out, int lineNo, String line, Matcher bo) {
