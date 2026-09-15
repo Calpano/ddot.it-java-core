@@ -23,6 +23,35 @@ public class Adocs {
         return line.startsWith("//");
     }
 
+    /**
+     * The fence a line opens, or null when it opens none.
+     *
+     * <p>The same list the block loop switches on, named once so that the continuation below can
+     * ask the question without repeating it.
+     */
+    private static String fenceOf(String line) {
+        return switch (line) {
+            case "----", "....", "++++", "****", "////", "====", "____", "--" -> line;
+            default -> null;
+        };
+    }
+
+    /**
+     * Whether the lines so far end on a list continuation, which claims whatever comes next.
+     *
+     * <p>From the AsciiDoc language documentation: "A list continuation is a + symbol on a line by
+     * itself, immediately adjacent to the block being attached." So a fence under one is part of the
+     * list above it, not a block of the document -- and a parser that cut the file between the two
+     * would hand its caller a list, a code block and a second list, with nothing left to say they
+     * were ever one thing.
+     *
+     * <p>A `+` at the end of a line is a hard line break and not this, which is why the test is for
+     * a line that is nothing else.
+     */
+    private static boolean claimsWhatFollows(List<String> lines) {
+        return !lines.isEmpty() && lines.getLast().equals("+");
+    }
+
     /** Headlines and section headlines don't need a blank line after them. */
     private static boolean needsBlankLineBefore(AdocDocument.Kind prevKind) {
         return switch (prevKind) {
@@ -202,8 +231,27 @@ public class Adocs {
             block.startLine = (pendingParams != null ? pendingParamsLine : i) + 1;
             pendingParams = null;
             pendingParamsLine = -1;
-            while (i < lines.size() && !lines.get(i).isBlank() && !isBlockStart(lines.get(i))) {
-                block.lines.add(lines.get(i));
+            while (i < lines.size() && !lines.get(i).isBlank()) {
+                String at = lines.get(i);
+                if (isBlockStart(at)) {
+                    // A fence a list continuation claimed stays in this run: the `+` above it says
+                    // it belongs to the item, and the caller needs to see both to know that.
+                    String fence = fenceOf(at);
+                    if (fence == null || !claimsWhatFollows(block.lines)) break;
+                    block.lines.add(at);
+                    i++;
+                    while (i < lines.size() && !lines.get(i).equals(fence)) {
+                        block.lines.add(lines.get(i));
+                        i++;
+                    }
+                    // The closing marker, or nothing where the block was never closed.
+                    if (i < lines.size()) {
+                        block.lines.add(lines.get(i));
+                        i++;
+                    }
+                    continue;
+                }
+                block.lines.add(at);
                 i++;
             }
             block.endLine = i;
