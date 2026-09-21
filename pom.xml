@@ -11,7 +11,7 @@
     -->
     <groupId>it.ddot</groupId>
     <artifactId>ddotit-core</artifactId>
-    <version>0.2.2-SNAPSHOT</version>
+    <version>0.2.2</version>
     <packaging>jar</packaging>
 
     <name>ddot.it core</name>
