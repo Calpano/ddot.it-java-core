@@ -3,3 +3,6 @@
 /out/
 *.iml
 .DS_Store
+/.asciidoctor/lib/ddot.rb
+/.asciidoctor/lib/ddot-extension.rb
+/.asciidoctor/lib/ddot-render.rb
