@@ -88,9 +88,10 @@ pattern lookups are fast. Derived from each edge:
 * *Resource* (`IKnowledgeItemResource`): inline (`content()`) or referenced (`location()`)
   content — file, archive entry, inline text/binary, or remote URL. Built via the
   `IResource.*` static factories.
-* *Meta* (`IMeta`): read-only key/value pairs. In the mem impl, `Kitem.meta()` is
-  a *view* derived from the item's `data` under the `meta` key — it is not a
-  separately stored field.
+* *Meta* (`IMeta`): read-only key/value pairs, on edges only. In the mem impl, `Kedge.meta()` is
+  a *view* of the edge's `data` itself, one key per relation (`{"since": "2025"}`, repeats as an
+  array) — it is not a separately stored field. So an edge-data query on `since` matches
+  `,, ..since.. 2025`. Nodes carry no meta.
 
 [[provenance]]
 == Provenance and per-source update

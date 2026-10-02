@@ -24,8 +24,8 @@ import java.util.function.Consumer;
  * advanced ddot.it; labels are allowed to collide.
  * <p>
  * The triple's source location (resource + line) is recorded on the edge for provenance, and the triple's own metadata
- * ({@link IDdotEvent#meta()}, e.g. {@code ,, ..since.. 2025}) is folded into the edge's {@code data} JSON under a
- * {@code meta} key, so it is queryable and readable via {@link Kedge#meta()}.
+ * ({@link IDdotEvent#meta()}, e.g. {@code ,, ..since.. 2025}) is folded into the edge's {@code data} JSON, one key per
+ * relation, so it is queryable and readable via {@link Kedge#meta()}.
  */
 public class TripleEvent2Kgraph implements Consumer<IDdotEvent> {
 
@@ -63,8 +63,8 @@ public class TripleEvent2Kgraph implements Consumer<IDdotEvent> {
         edge.addSourceLocation(location);
         from.addSourceLocation(location);
         to.addSourceLocation(location);
-        // Fold the triple's own metadata (e.g. ",, ..since.. 2025") into the edge's data under "meta",
-        // so it becomes queryable and is read back by Kitem.meta().
+        // Fold the triple's own metadata (e.g. ",, ..since.. 2025") into the edge's data, one key per relation,
+        // so it becomes queryable and is read back by Kedge.meta().
         IMeta meta = tripleEvent.meta();
         if (meta != null && !meta.isEmpty()) {
             foldMetaIntoEdgeData(edge, meta);
@@ -72,8 +72,7 @@ public class TripleEvent2Kgraph implements Consumer<IDdotEvent> {
     }
 
     /**
-     * Merges {@code meta} into the edge's {@code data} JSON under the {@code meta} key, preserving any existing
-     * top-level data and any existing {@code meta} entries.
+     * Merges {@code meta} into the edge's {@code data} JSON, one key per relation, preserving any existing keys.
      * <p>
      * The event's metadata is an ordered LIST of pairs and a relation may repeat on one link
      * ({@code ,, ..author.. Ann ;; ..author.. Bob}). A JSON object cannot hold {@code author} twice, so a repeated
@@ -88,17 +87,13 @@ public class TripleEvent2Kgraph implements Consumer<IDdotEvent> {
         IJsonObjectMutable root = jf.createObjectMutable();
         if (existingObj != null) existingObj.forEach(root::addProperty);
 
-        IJsonObjectMutable metaObj = jf.createObjectMutable();
-        IJsonValue existingMeta = existingObj != null ? existingObj.get("meta") : null;
-        if (existingMeta != null && existingMeta.isObject()) existingMeta.asObject().forEach(metaObj::addProperty);
         // This event's own pairs first, so a relation IT repeats collects into an array; the result then
         // overrides the same key on the edge, keeping a re-read of the same source idempotent (which appending
         // straight onto the existing entries would not be).
         IJsonObjectMutable eventMeta = jf.createObjectMutable();
         meta.forEach((key, value) -> Kitem.appendMetaValue(eventMeta, key, value));
-        eventMeta.forEach(metaObj::setProperty);
+        eventMeta.forEach(root::setProperty);
 
-        root.setProperty("meta", metaObj);
         edge.data(root);
     }
 

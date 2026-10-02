@@ -176,8 +176,8 @@ public class DdotItBaseOnKbase implements IDdotItKnowledgeBase {
 
     /**
      * ddot triple-text writer that, unlike the generic default, re-emits each triple's {@code ,,} metadata.
-     * It reads directly from the Kgraph edges (where the indexer folds metadata in under the edge's "meta"
-     * data key) rather than from the metadata-less {@link KTriple} query result, so notes are not lost.
+     * It reads directly from the Kgraph edges (where the indexer folds metadata into the edge's data, one key per
+     * relation) rather than from the metadata-less {@link KTriple} query result, so notes are not lost.
      */
     @Override
     public void saveAsDdot(Path file) throws IOException {

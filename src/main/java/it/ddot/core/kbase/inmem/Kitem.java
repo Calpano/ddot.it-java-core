@@ -6,11 +6,9 @@ import it.ddot.core.kbase.IKnowledgeItemResource;
 import it.ddot.core.kbase.IKnowledgeLabel;
 import com.graphinout.foundation.pure.json.document.IJsonArrayMutable;
 import com.graphinout.foundation.pure.json.document.IJsonFactory;
-import com.graphinout.foundation.pure.json.document.IJsonObject;
 import com.graphinout.foundation.pure.json.document.IJsonObjectMutable;
 import com.graphinout.foundation.pure.json.document.IJsonValue;
 import it.ddot.core.event.IMeta;
-import it.ddot.core.event.IMetaPair;
 import it.ddot.core.source.ISourceLocation;
 import org.jspecify.annotations.Nullable;
 
@@ -72,56 +70,16 @@ public abstract class Kitem implements IKnowledgeItem {
     public void label(IKnowledgeLabel label) {this.label = label;}
 
     /**
-     * The metadata stored under {@code data.meta}, as the ordered pair list {@link IMeta} is.
-     * <p>
-     * A relation may repeat on one link ({@code ,, ..author.. Ann ;; ..author.. Bob}), which a JSON object cannot
-     * hold twice — {@link #addMeta} therefore stores repeats as an ARRAY value, and this expands such an array back
-     * into one pair per element. A single value stays one pair.
+     * Per-link metadata ({@code ,, ..since.. 2025}) exists only on edges, see {@link Kedge#meta()}; a node has none.
      */
+    @Override
     public @Nullable IMeta meta() {
-        if (data != null && data.isObject()) {
-            IJsonValue metaValue = data.asObject().get("meta");
-            if (metaValue != null && metaValue.isObject()) {
-                List<IMetaPair> pairs = new ArrayList<>();
-                metaValue.asObject().forEach((key, value) -> {
-                    if (value.isPrimitive()) {
-                        pairs.add(IMetaPair.of(key, value.asPrimitive().toJavaString()));
-                    } else if (value.isArray()) {
-                        value.asArray().forEach(v -> {
-                            if (v.isPrimitive()) pairs.add(IMetaPair.of(key, v.asPrimitive().toJavaString()));
-                        });
-                    }
-                });
-                return IMeta.of(pairs);
-            }
-        }
         return null;
     }
 
     /**
-     * Appends {@code value} under {@code data.meta.<key>}, preserving any existing {@code data} and {@code meta}
-     * entries. This is the write side of {@link #meta()} (which reads {@code data.meta.*}).
-     * <p>
-     * APPENDS, not replaces: a relation may legitimately be written twice on one link, and a key that already has a
-     * value therefore becomes an array of both rather than losing the first. That array is what {@link #meta()}
-     * reads back as two pairs.
-     */
-    public void addMeta(String key, String value) {
-        IJsonFactory jf = IJsonFactory.INSTANCE;
-        IJsonObject existing = (data != null && data.isObject()) ? data.asObject() : null;
-        IJsonObjectMutable root = jf.createObjectMutable();
-        if (existing != null) existing.forEach(root::addProperty);
-        IJsonObjectMutable metaObj = jf.createObjectMutable();
-        IJsonValue existingMeta = existing != null ? existing.get("meta") : null;
-        if (existingMeta != null && existingMeta.isObject()) existingMeta.asObject().forEach(metaObj::addProperty);
-        appendMetaValue(metaObj, key, value);
-        root.setProperty("meta", metaObj);
-        this.data = root;
-    }
-
-    /**
-     * Adds {@code key -> value} to {@code metaObj}: absent → a plain string, already present → an array holding the
-     * value(s) already there plus this one, in written order.
+     * Adds {@code key -> value} to the metadata object {@code metaObj}: absent → a plain string, already present → an
+     * array holding the value(s) already there plus this one, in written order. See {@link Kedge#meta()}.
      */
     public static void appendMetaValue(IJsonObjectMutable metaObj, String key, String value) {
         IJsonValue present = metaObj.get(key);

@@ -34,7 +34,6 @@ import java.util.List;
 import java.util.Map;
 
 import static com.graphinout.foundation.pure.functional.Nullables.ifPresentAccept;
-import static com.graphinout.foundation.pure.json.path.IJsonContainerNavigationStep.pathOf;
 
 public class KnowledgeBases {
 
@@ -193,17 +192,19 @@ public class KnowledgeBases {
     }
 
     private static void toCj(Kedge kedge, ICjEdgeMutable cjEdge) {
-        // A relation repeated on one link is several pairs, and `meta` is a JSON OBJECT, which cannot hold the key
-        // twice — so repeats go into an array under that key, the same shape Kitem.meta() reads back.
+        // Edge metadata is the edge's data, one key per relation — the flat shape graphinout's ddot reader writes, so
+        // fromCj/importCj read either back the same way. A relation repeated on one link is several pairs, and the
+        // data is a JSON OBJECT, which cannot hold the key twice — so repeats go into an array under that key, the
+        // same shape Kedge.meta() reads back.
         ifPresentAccept(kedge.meta(), km -> //
                 km.keys().forEach(key -> cjEdge.dataMutable(cjData -> {
                     List<String> values = km.getAll(key);
                     if (values.size() == 1) {
-                        cjData.add(pathOf("meta", key), values.getFirst());
+                        cjData.add(key, values.getFirst());
                     } else {
                         IJsonArrayMutable array = cjData.factory().createArrayMutable();
                         values.forEach(array::add);
-                        cjData.add(pathOf("meta", key), array);
+                        cjData.add(key, array);
                     }
                 })));
         kedge.endpoints().forEach(kendpoint -> {

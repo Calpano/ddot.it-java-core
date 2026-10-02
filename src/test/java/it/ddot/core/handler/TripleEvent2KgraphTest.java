@@ -1,6 +1,9 @@
 package it.ddot.core.handler;
 
 
+import com.graphinout.base.cj.document.ICjDocument;
+import com.graphinout.foundation.pure.json.document.IJsonObject;
+import it.ddot.core.kbase.KnowledgeBases;
 import it.ddot.core.kbase.inmem.Kedge;
 import it.ddot.core.kbase.inmem.Kgraph;
 import it.ddot.core.DdotVocabulary;
@@ -178,6 +181,39 @@ class TripleEvent2KgraphTest {
 
         Kedge edge = edges("Ann", "wrote", "Book").get(0);
         assertThat(edge.meta().getAll("author")).containsExactly("Ann", "Bob").inOrder();
+    }
+
+    /**
+     * Edge metadata is the edge's data itself, one key per relation — no wrapping {@code meta} object. That is the
+     * shape graphinout's ddot reader gives a CJ edge, so CJ from either side reads back the same way.
+     */
+    @Test
+    void tripleMeta_isStoredFlatInEdgeData() {
+        handler.accept(eventWithMeta("Alice", "knows", "Bob", 1, IMeta.of(List.of(
+                IMetaPair.of("since", "2025"), IMetaPair.of(DdotVocabulary.TEXT, "a note")))));
+        IJsonObject data = edges("Alice", "knows", "Bob").get(0).data().asObject();
+
+        assertThat(data.keys()).containsExactly("since", DdotVocabulary.TEXT);
+        assertThat(data.get("since").asString()).isEqualTo("2025");
+        assertThat(data.get(DdotVocabulary.TEXT).asString()).isEqualTo("a note");
+    }
+
+    /** The CJ export writes the same flat edge data, and importing that CJ gives the metadata back. */
+    @Test
+    void tripleMeta_roundTripsThroughCjAsFlatEdgeData() {
+        IMeta meta = IMeta.of(List.of(IMetaPair.of("since", "2025"), IMetaPair.of("author", "Ann"), IMetaPair.of("author", "Bob")));
+        handler.accept(eventWithMeta("Ann", "wrote", "Book", 1, meta));
+
+        ICjDocument cj = KnowledgeBases.toCj(g);
+        IJsonObject cjEdgeData = cj.graphs().findFirst().orElseThrow()
+                .edges().findFirst().orElseThrow().data().jsonValue().asObject();
+        assertThat(cjEdgeData.get("since").asString()).isEqualTo("2025");
+        assertThat(cjEdgeData.get("author").asArray().size()).isEqualTo(2);
+        assertThat(cjEdgeData.get("meta")).isNull();
+
+        Kedge back = KnowledgeBases.fromCj(cj).graphs().findFirst().orElseThrow().edges().findFirst().orElseThrow();
+        assertThat(back.meta().get("since")).isEqualTo("2025");
+        assertThat(back.meta().getAll("author")).containsExactly("Ann", "Bob").inOrder();
     }
 
     /** All meta keys are folded, not just the first. */
