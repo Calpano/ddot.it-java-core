@@ -1,0 +1,10 @@
+= Package `it.ddot.core.handler` (tests)
+:icons: font
+// ddot.it/off
+
+Tests for the handlers in `it.ddot.core.io.handler`.
+
+.Contents
+Source2TripleEventsTest:: Line stream -> triple events: continuation, metadata, blocks, `on`/`off` regions, lifecycle.
+Source2TripleEventsBufferTest:: The buffer is bounded by the construct being read, not by the document.
+TripleEvent2KgraphTest:: Events -> `Kgraph` edges: node identity, duplicate labels, provenance and metadata on edges.

@@ -1,7 +1,5 @@
-package it.ddot.core.kserver.impl.mem;
+package it.ddot.core.kbase.inmem;
 
-import it.ddot.core.kbase.inmem.Kedge;
-import it.ddot.core.kbase.inmem.Kgraph;
 import it.ddot.core.kbase.IKnowledgeGraph.RemoveBySourceResult;
 import it.ddot.core.event.DdotEvent;
 import it.ddot.core.source.ISnippet;

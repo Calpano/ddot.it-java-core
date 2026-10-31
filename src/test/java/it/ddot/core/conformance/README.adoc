@@ -1,0 +1,14 @@
+= Package `it.ddot.core.conformance` (tests)
+:icons: font
+// ddot.it/off
+
+Conformance tests against the ddot.it specification and the shared, cross-implementation golden corpus in the
+`ddot.it` repository (`test-data/cases/*`).
+
+.Contents
+CorpusConformanceTest:: Byte-exact conformance of `DdotTokenizer`, `DdotEventExporter` and `DdotHtmlRenderer` against
+each case's `expected.tokens.json`, `expected.events.jsonl` and `expected.body.html`. Skips loudly when the sibling corpus
+is absent, but *fails* when it is present and truncated.
+DdotCorpusConformanceTest:: Asserts `expected.events.jsonl` only, bridging representation differences of this library's
+event model. Known, accepted divergences are listed in `src/test/resources/ddot-corpus-known-divergences.txt`.
+DdotSpecConformanceTest:: Parse-Spec checks on edge inputs the corpus does not cover.

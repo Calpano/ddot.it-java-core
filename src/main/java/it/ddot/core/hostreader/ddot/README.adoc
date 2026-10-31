@@ -1,0 +1,18 @@
+= Native `.ddot` Reader
+:icons: font
+// ddot.it/off
+
+Extensions:: `.ddot`
+Reader:: `DdotReader`
+
+See link:../../../../../../../../doc/how-to-write-a-reader.adoc[How to Write a Reader] for the general architecture.
+
+A `.ddot` file is a plain-text stream of ddot.it lines.
+There is no host syntax to strip, so the reader passes every line straight to `io.handler.Source2TripleEvents`.
+
+.Behaviour
+* The whole file is *one* continuous source: the active subject carries over between lines (empty subject = continuation).
+* All line commands are honoured: `ddot.it/on` / `ddot.it/off` regions, `ddot.it/this`, `,,` metadata, untyped `....`
+  links and `!!block` multi-line object literals.
+* *Lenient*: blank lines and lines that are not triples are ignored, as in the Markdown and AsciiDoc readers --
+  unlike the strict test-only link:../basic/README.adoc[`DdotItBaseReader`].

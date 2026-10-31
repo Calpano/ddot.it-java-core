@@ -1,8 +1,5 @@
-package it.ddot.core.kserver.base;
+package it.ddot.core.kbase.inmem;
 
-import it.ddot.core.kbase.inmem.Kedge;
-import it.ddot.core.kbase.inmem.Kgraph;
-import it.ddot.core.kbase.inmem.Knode;
 import it.ddot.core.kbase.Kendpoint;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

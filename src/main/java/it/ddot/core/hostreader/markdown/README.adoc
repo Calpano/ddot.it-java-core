@@ -4,7 +4,7 @@
 Extensions:: `.md`, `.markdown`
 Kind:: `"markdown"`
 Parser:: `MarkdownParser`
-Reader:: `ReaderMarkdown`
+Reader:: `MarkdownReader`
 
 See link:../../../../../../../../doc/how-to-write-a-reader.adoc[How to Write a Reader] for the general architecture.
 
@@ -14,9 +14,13 @@ See link:../../../../../../../../doc/how-to-write-a-reader.adoc[How to Write a R
 |===
 | Markdown syntax | Parser callback | Block boundary
 
-| `<!-- ... -->`
+| `<!-- ... -->` (multi-line)
 | `onHtmlComment`
 | Isolated block — subject resets after the comment
+
+| `<!-- ... -->` (on one line, possibly inside prose)
+| `onInlineComment`
+| Isolated block — only the comment's inner text is read
 
 | ```` ``` ```` ... ```` ``` ```` or `~~~` ... `~~~`
 | `onCodeBlock`
@@ -24,7 +28,11 @@ See link:../../../../../../../../doc/how-to-write-a-reader.adoc[How to Write a R
 
 | `## Title {#id .class}`
 | `onSectionAttributes`
-| Ignored by Reader — attributes not forwarded as triples
+| Isolated block — `#id` becomes `Title ..has tag.. id`, `.class` becomes `Title ..has type.. class`
+
+| `- item`, `* item`, `+ item`, `1. item`
+| `onListItem`
+| No block — the bullet is stripped, subject persists across list items
 
 | Body text
 | `onPlainLine`
@@ -36,10 +44,13 @@ See link:../../../../../../../../doc/how-to-write-a-reader.adoc[How to Write a R
 * HTML comments may be single-line (`<!-- text -->`) or multi-line; the `<!--` / `-->` delimiters are stripped.
 * Fenced code blocks are opened by 3+ backticks or tildes; the fence character of the opening line determines the closing fence character (backtick fence is closed by backtick fence, not tilde).
 * `onSectionAttributes` fires only for headings carrying `{...}` attribute syntax.
-  The Reader currently ignores this callback — attributes do not contribute triples.
+  The reader synthesizes triples from it: the section title is the subject, each `#id` a `has tag` and each `.class` a
+  `has type` object. These triples have no source line of their own, so write-back skips them.
+* List items: the bullet is stripped before the triple grammar sees the line (else it would leak into the subject)
+  and re-applied on write-back; see `structuredtext.ListMarker`.
 * `onPlainLine` delivers the raw line; no stripping is applied to body text.
 
 == Pitfall: Headings with inline triple-like syntax
 
-A heading like `## S1 .... O1` contains four dots, which `parseLine` will interpret as an untyped triple.
+A heading like `## S1 .... O1` contains four dots, which the triple grammar reads as an untyped triple.
 Avoid using triple syntax (`..` or `....`) in heading text that should not produce triples.

@@ -1,0 +1,11 @@
+= Package `it.ddot.core.annotation`
+:icons: font
+// ddot.it/off
+
+A standard Java annotation for embedding ddot.it triples into Java code and bytecode.
+Completely optional -- it exists to show how versatile ddot.it is, and to give this use-case one agreed-upon annotation.
+
+.Contents
+DdotIt:: `@DdotIt` with `RUNTIME` retention, so the triples are readable via reflection.
+It may be placed on virtually any declaration: types, fields, methods, parameters, constructors, local variables,
+annotation types, packages, type parameters, type uses, modules and record components.

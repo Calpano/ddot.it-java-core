@@ -1,0 +1,21 @@
+= Package `it.ddot.core.html`
+:icons: font
+// ddot.it/off
+
+Syntax-highlighted HTML for ddot.it source, as used for previews.
+
+.Contents
+DdotHtmlRenderer:: `body(String)` turns ddot.it source into role-classed body HTML.
+It is a pure *fold over the canonical token stream* of `token.DdotTokenizer` and contains no lexical rules of its own:
+each token becomes a `<span>` with a CSS class; text the tokenizer does not tokenize (whitespace, decoration, non-ddot lines)
+is only HTML-escaped. An earlier copy carried its own tokenizer and drifted -- the fold keeps highlighting, events and preview
+pinned to one corpus.
+CssNames:: The mapping `TokenName` -> CSS class (`ddot-subject`, `ddot-predicate`, `ddot-object`, `ddot-sep`,
+`ddot-meta-*`, `ddot-command`, `ddot-inactive`, `ddot-verbatim`, ...).
+
+[[conformance]]
+== Conformance
+
+The output must be byte-identical to `expected.body.html` of every case in the cross-implementation corpus
+(`../ddot.it/test-data/cases/`). The canonical implementation is the Ruby `ddot-render.rb` in the IntelliJ plugin;
+this class is a mirror.

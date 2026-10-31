@@ -1,0 +1,10 @@
+= Package `it.ddot.core.hostreader.structuredtext`
+:icons: font
+// ddot.it/off
+
+Helpers shared by the readers of "structured text" hosts -- Markdown, HTML (as a Markdown subset) and AsciiDoc.
+
+.Contents
+ListMarker:: Detects a host list-item bullet (Markdown/HTML: `-`, `*`, `+`, `1.`; AsciiDoc: `*`, `.`, `-`) at the start of a line and splits it from the residual ddot.it content.
+The bullet is stripped before the triple grammar sees the line -- otherwise it would leak into the subject -- and is
+re-applied on write-back, so `sourceLine == marker + content` holds.

@@ -1,0 +1,17 @@
+= Package `it.ddot.core.hostreader.asciidoc.doc`
+:icons: font
+// ddot.it/off
+
+A small, self-contained AsciiDoc document model: parse an `.adoc` file into a DOM-like tree, write it back, and render
+it to HTML. Used by `asciidoc.Adoc2Kg` to map documents and sections to knowledge-graph nodes
+(see link:../README.adoc[AsciiDoc Reader]).
+
+.Contents
+AdocDocument:: The document tree: header attributes, sections (with anchors, levels, titles) and blocks
+(paragraphs, listing/literal/sidebar/... blocks, with their attribute lists).
+Adocs:: Parser (`parse(String)`, `parse(List<String>)`) and writer (`write`).
+Recognizes block attribute lines (`[...]`, `[[id]]`), section titles (`==` to `======`), block titles (`.Title`),
+delimited blocks (`----`, `....`, `++++`, `****`, `////`, `====`, `____`, `--`), comments and list continuations
+(`+`), which claim the block that follows.
+AdocRenderer:: Renders an `AdocDocument` to HTML compatible with Asciidoctor's default HTML5 backend, using the same CSS
+class names (`paragraph`, `listingblock`, `literalblock`, `sidebarblock`, ...).

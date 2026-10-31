@@ -1,0 +1,36 @@
+= Package `it.ddot.core.hostreader`
+:icons: font
+// ddot.it/off
+
+Host readers: classes that read a file in some host format (Markdown, AsciiDoc, ...), find the parts that may
+contain ddot.it, and push their text into an `io.ISourceHandler`, which turns it into triple events.
+
+See link:../../../../../../../doc/how-to-write-a-reader.adoc[How to Write a Reader] for the architecture and how to add a reader.
+
+.Contents
+AbstractSourceReader:: Base `ISourceReader`, holding the reader's `ISourceFormat`.
+AbstractFileSourceReader:: Adds reading all lines of a file.
+AbstractTextFileSourceReader:: Base class of all text-file readers in the sub-packages.
+ReadersConfig:: Which readers are active, by file extension. JSON with optional `enabledExtensions` and
+`disabledExtensions`; disabled always wins, and an empty config enables everything.
+
+[[readers]]
+== Readers
+
+[cols="1,1,2"]
+|===
+| Package | Extensions | Reader
+
+| link:asciidoc/README.adoc[`asciidoc`] | `.adoc`, `.asciidoc` | `AsciiDocReader` (plus a small AsciiDoc DOM in `asciidoc.doc`)
+| link:markdown/README.adoc[`markdown`] | `.md`, `.markdown` | `MarkdownReader`
+| link:html/README.adoc[`html`] | `.html`, `.htm` | `HtmlReader`
+| link:xml/README.adoc[`xml`] | `.xml` | `XmlReader`
+| link:yaml/README.adoc[`yaml`] | `.yaml`, `.yml` | `YamlReader`
+| link:ddot/README.adoc[`ddot`] | `.ddot` | `DdotReader`
+| link:basic/README.adoc[`basic`] | -- | `DdotItBaseReader`, a strict test-only parser
+|===
+
+link:structuredtext/README.adoc[`structuredtext`] holds helpers shared by several readers.
+
+Most readers follow the same split: a *parser* that knows the host syntax and nothing about ddot.it, and a *reader*
+that hands the residual text to `io.handler.Source2TripleEvents`, which knows ddot.it and nothing about the host.

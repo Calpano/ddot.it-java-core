@@ -1,0 +1,20 @@
+= Basic Reader (test-only)
+:icons: font
+// ddot.it/off
+
+Package:: `it.ddot.core.hostreader.basic`
+Parser:: `DdotItBaseReader`
+
+WARNING: This is *not* the canonical ddot.it parser. Use a real reader (see link:../README.adoc[`hostreader`]) or
+`io.DdotParser` for anything but tightly controlled test fixtures.
+
+`DdotItBaseReader.parse` reads the bare syntax `SSS..PPP..OOO`, one triple per line, nothing stripped, and reports
+each as a `ParsedTriple(s, p, o, lineNumber)`.
+
+.It deliberately throws `IllegalStateException` on
+* a `null` or blank input,
+* a blank line,
+* any line that does not split into exactly three `..`-separated parts.
+
+It supports none of the real grammar: no continuation lines, untyped links, `,,` metadata, `!!block` literals,
+`ddot.it/on|off` regions or whitespace trimming.

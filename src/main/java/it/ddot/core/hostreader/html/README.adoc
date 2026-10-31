@@ -4,7 +4,7 @@
 Extensions:: `.html`, `.htm`
 Kind:: `"html"`
 Parser:: `HtmlParser`
-Reader:: `ReaderHtml`
+Reader:: `HtmlReader`
 
 See link:../../../../../../../../doc/how-to-write-a-reader.adoc[How to Write a Reader] for the general architecture.
 
@@ -22,6 +22,14 @@ See link:../../../../../../../../doc/how-to-write-a-reader.adoc[How to Write a R
 | `onTextBlock`
 | Isolated block per element — subject resets after each element
 
+| `data-ddot="..."` on any element
+| `onDataAttribute`
+| Isolated block — the value is split into one ddot.it line per chained triple
+
+| `<ddot-it subject="S" key="value">content</ddot-it>`
+| `onCustomElement`
+| Isolated block — triples are emitted directly, not parsed from text
+
 | `<html>`, `<body>`, `<head>`, `<ul>`, etc.
 | _(none)_
 | Not delivered — structural/container tags are ignored
@@ -31,17 +39,43 @@ See link:../../../../../../../../doc/how-to-write-a-reader.adoc[How to Write a R
 
 The set of tags that deliver content: `p`, `li`, `td`, `th`, `div`, `h1`–`h6`.
 Both inline (`<p>content</p>`) and multi-line elements are handled.
-The `<!-- -->` / tag delimiters are stripped; only the inner text reaches `AbstractSourceReader`.
+The `<!-- -->` / tag delimiters are stripped; only the inner text reaches `Source2TripleEvents`.
+A leading Markdown-style list bullet is stripped from prose lines (see `structuredtext.ListMarker`).
 
 == Extraction Notes
 
-* HTML attributes are never scanned — triples must appear in text content, not attribute values.
+* Attributes are not scanned for triples, with two exceptions: `data-ddot` (below) and the attributes of `<ddot-it>`.
 * Structural tags (`<html>`, `<body>`, `<head>`, `<ul>`, `<ol>`, `<table>`) produce no callback; their container role means they have no direct text content.
 * Each text-block element is an isolated block.
   Subject does **not** persist across sibling `<p>` or `<li>` elements (unlike XML plain text).
 
+== `data-ddot` Attributes
+
+The whole value of a `data-ddot` attribute is ddot.it content, on any element whose opening tag starts a line.
+Because an attribute cannot span lines, several triples may be chained on one line;
+`HtmlReader.splitDataDdotLines` slices the value back into one line per triple, keeping each triple's `,,` metadata:
+
+[source]
+----
+S ..P1.. O1 ,, ..m.. v ..P2.. O2   →   "S ..P1.. O1 ,, ..m.. v", "..P2.. O2"
+----
+
+== The `<ddot-it>` Custom Element
+
+Since ddot.it 1.1.
+The subject comes from the `subject`, `id` or `name` attribute (in that order); an element without one is skipped.
+Every other attribute (except `data-ddot`) becomes a `subject .. key .. value` triple, and the raw inner markup,
+newlines preserved, becomes a `subject .. has content .. ...` triple.
+
+[source,html]
+----
+<ddot-it subject="Alice" knows="Bob">Some <b>HTML</b></ddot-it>
+----
+
+yields `Alice ..knows.. Bob` and `Alice ..has content.. Some <b>HTML</b>`.
+
 == Difference from XML Reader
 
-`ReaderHtml` treats every block-level element as an isolated block, so continuation does not cross element boundaries.
-`ReaderXml` treats text lines as plain (no block), so subject persists across sibling text content.
+`HtmlReader` treats every block-level element as an isolated block, so continuation does not cross element boundaries.
+`XmlReader` treats text lines as plain (no block), so subject persists across sibling text content.
 Choose the HTML reader for HTML documents where each element is semantically independent; use the XML reader when sibling text nodes naturally form a continuation sequence.

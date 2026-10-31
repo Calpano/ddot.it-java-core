@@ -1,0 +1,25 @@
+= Package `it.ddot.core.event`
+:icons: font
+// ddot.it/off
+
+The ddot.it triple-event model: what a parser emits for each recognized triple.
+The schema is documented at link:https://ddot.it/spec/ddot-it-parse.html#events[ddot.it events].
+
+Everything here is a pure value: no I/O, no platform, no third-party types.
+Values are carried *verbatim* -- no unescaping, no quote stripping, no HTML escaping.
+Commands such as `!!this` are not resolved here; that is the collector's job.
+
+.Contents
+IDdotTriple:: The naked triple: `from`, `type`, `to` (subject, relation, object).
+DdotTriple:: The record form, used as identity of a statement -- two events differing only in provenance share one
+`DdotTriple`, so it works as a map/set key. An untyped link carries `links to` spelled out, never `null`.
+IDdotEvent:: A triple plus its `IMeta`, its snippet and its line. Note the two line numbers: the event's own
+`startLineInSnippet()` and the snippet's `startLineInResource()`. Always use `sourceLocation()`, which adds them.
+DdotEvent:: The concrete event: one per recognized triple. A slot filled by a `!!block` holds the block body with real newlines.
+IMeta:: Everything after a triple's `,,`, as an *ordered list* of pairs -- not a map, because a relation may repeat
+(`,, ..author.. Ann ;; ..author.. Bob`). `get`, `keys` and `asMap` are lossy convenience views.
+IMetaPair, MetaPair:: One metadata entry `(type, to)`: a typed pair, the untyped `,, .... x` shortcut (`links to`),
+or free text (`text`).
+Meta:: The mutable, append-only `IMeta`.
+
+The canonical generator of the event stream is `io.DdotEventExporter`; see link:../io/README.adoc[`io`].

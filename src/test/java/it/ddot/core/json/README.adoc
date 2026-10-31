@@ -1,0 +1,9 @@
+= Package `it.ddot.core.json` (tests)
+:icons: font
+// ddot.it/off
+
+Tests for the JSON query engine of graphinout (`com.graphinout.foundation.pure.json.query`), which the knowledge graph uses
+to query JSON item data.
+
+.Contents
+JsonQueryEngineTest:: `JsonQuery` / `JsonPathCheck` matching over JSON objects, arrays and values.

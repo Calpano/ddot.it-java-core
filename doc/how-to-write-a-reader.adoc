@@ -1,0 +1,178 @@
+= How to Write a Reader
+:icons: font
+:toc:
+// ddot.it/off
+
+A *reader* pulls ddot.it triples out of one host format -- Markdown, AsciiDoc, HTML, XML, YAML, plain `.ddot`.
+This guide describes the architecture all readers in `it.ddot.core.hostreader` share, and the steps to add a new one.
+
+[[architecture]]
+== Architecture
+
+.Data flow
+----
+file ──lines──▶ XxxParser ──callbacks──▶ XxxReader.StructureHandler
+                (host syntax only)        │  onLine(text, n) / blockStart() / blockEnd() / emitTriple(...)
+                                          ▼
+                              StructuredSource2TripleEvents   (ddot.it grammar only)
+                                          │  IDdotEvent
+                                          ▼
+                                    ISourceHandler   (e.g. Source2Kgraph → Kgraph)
+----
+
+The split into two layers is the central rule:
+
+. *Primary layer -- host syntax.* A `XxxParser` knows the host format and *nothing* about ddot.it.
+  It classifies the source into structures (comments, code blocks, text elements, list items, ...) and reports each one
+  to an `IHandler` callback, with host delimiters stripped.
+. *Secondary layer -- ddot.it.* `io.handler.Source2TripleEvents` (via its subclass `StructuredSource2TripleEvents`)
+  knows the ddot.it grammar and *nothing* about the host: `S .. P .. O`, continuation lines, `,,` metadata,
+  `!!block`, `ddot.it/on` / `ddot.it/off`. It owns no grammar of its own either; it is an adapter over
+  `io.DdotParser`, which folds over `token.DdotTokenizer`.
+
+Anything host-specific that would confuse the triple grammar must therefore be resolved in the *primary* layer.
+Example: AsciiDoc link targets like `link:../../x.adoc[X]` contain `../..`, which the triple grammar would read as
+a separator, so `AsciiDocReader` resolves `link:` macros before handing on the residual text.
+Conversely, never re-implement any part of the ddot.it grammar in a reader.
+
+[[interfaces]]
+== The Interfaces
+
+`io.ISourceReader`:: One reader handles one kind of source. `readTo(address, handler)` reads one resource;
+`resourceData(address)` reads its metadata; `sourceKind()` returns its `source.ISourceFormat`.
+`io.ISourceHandler`:: The sink: `sourceStart`, `sourceResourceStart(snippet)`, `onLine(line, lineNumber)`,
+`onTripleEvent(event)`, `sourceResourceEnd`, `sourceEnd`, plus the active subject.
+`hostreader.AbstractTextFileSourceReader`:: The base class for text-file readers. Its `readTo(address, handler)`
+does the whole lifecycle for you -- wraps the handler in a `StructuredSource2TripleEvents`, starts the source and
+resource with a snippet starting at line 1, reads all lines, and ends resource and source. You implement only
+`readTo(List<String> lines, StructuredSource2TripleEvents ss2te)`.
+
+[[blocks]]
+== Blocks and the Active Subject
+
+ddot.it lets a line omit its subject and continue the previous one (`.. knows .. Carol`).
+Whether continuation may cross a host structure is the most important decision a reader makes, and it is
+expressed with two calls on `StructuredSource2TripleEvents`:
+
+`blockStart()`:: Marks the start of an isolated structure. Currently a no-op, kept for symmetry and future use.
+`blockEnd()`:: Resets the active subject and flushes the line buffer. Continuation does not cross it.
+
+.Conventions of the existing readers
+[cols="2,1,2"]
+|===
+| Structure | Block? | Why
+
+| Comments, code/source blocks, block scalars
+| isolated
+| A self-contained unit of ddot.it; a dangling subject must not leak out of it.
+
+| Each HTML block element (`<p>`, `<li>`, ...)
+| isolated
+| HTML elements are semantically independent.
+
+| Plain body lines, XML text lines, YAML values, list items
+| none
+| Consecutive lines naturally form a continuation sequence.
+|===
+
+Do *not* wrap list items in `blockStart`/`blockEnd`: that would break continuation across items.
+
+[[lines]]
+== Delivering Content
+
+`onLine(text, lineNumber)`:: The normal path: hand over the residual text of one host line.
+Strip host delimiters (`//`, `<!--`, `#`, tags, `key:`) first, but nothing else -- whitespace handling belongs to the grammar.
+`emitTriple(subject, type, value, lineNumber)`:: Bypasses line parsing, for triples that come from structure rather
+than text and cannot be written as one `S .. P .. O` line -- e.g. the HTML `<ddot-it>` element, whose
+`has content` value contains newlines and markup. A `null` or empty `type` means `links to`. It flushes the
+buffer first, so events stay in source order, and sets the active subject.
+
+.Line numbers
+* Line numbers are 1-based and count from the start of the current *snippet*. `AbstractTextFileSourceReader` uses one
+  snippet for the whole file, so they are simply file lines.
+* A reader that lifts an embedded chunk out of a file numbers the chunk's lines from 1 and puts the chunk's file
+  position into its `ISnippet`; `IDdotEvent.sourceLocation()` adds the two back together.
+* Report the line a piece of text actually came from (`startLine + i` for multi-line structures), never the structure's
+  first line for all of them.
+
+[[list-markers]]
+== List Bullets and Write-Back
+
+A host list bullet (`- `, `* `, `1. `) must not reach the triple grammar, or it becomes part of the subject.
+Use `hostreader.structuredtext.ListMarker` (`markdown(line)` or `asciidoc(line)`) to split it off, and pass only
+`content()` to `onLine`. The invariant `sourceLine == marker + content` is what lets write-back re-apply the bullet.
+
+Write-back can only rewrite a triple in place when the triple *is* a verbatim source line, possibly with a known
+prefix/suffix. Triples synthesized from structure -- attributes, `<ddot-it>` elements, Markdown `{#id .class}`
+heading attributes -- have no such line and are skipped by write-back. Keep that in mind before mixing synthesized
+and verbatim content in one callback.
+
+[[steps]]
+== Adding a Reader, Step by Step
+
+. *Register the format.* Add an `ISourceFormat` constant to `it.ddot.core.DdotSourceFormats`:
+  `ISourceFormat.of("toml", "application/toml", Set.of("toml"))`. The id is the short lowercase `kind` carried on
+  every event.
+. *Create the package* `it.ddot.core.hostreader.<format>`.
+. *Write the parser* `<Format>Parser` with a nested `IHandler` interface, one callback per kind of structure, and a
+  static `parse(List<String> lines, IHandler handler)`. It must not import anything from `it.ddot.core.io` or
+  `it.ddot.core.token`.
+. *Write the reader* `<Format>Reader extends AbstractTextFileSourceReader`:
++
+[source,java]
+----
+public class TomlReader extends AbstractTextFileSourceReader {
+
+    static class StructureHandler implements TomlParser.IHandler {
+        private final StructuredSource2TripleEvents handler;
+
+        StructureHandler(StructuredSource2TripleEvents handler) {this.handler = handler;}
+
+        @Override
+        public void onLineComment(int lineNumber, String text) {
+            handler.blockStart();          // a comment is an isolated block
+            handler.onLine(text, lineNumber);
+            handler.blockEnd();
+        }
+
+        @Override
+        public void onValue(int lineNumber, String value) {
+            handler.onLine(value, lineNumber);   // no block: subject persists
+        }
+    }
+
+    public TomlReader() {
+        super(DdotSourceFormats.TOML);
+    }
+
+    @Override
+    public void readTo(List<String> lines, StructuredSource2TripleEvents ss2te) {
+        TomlParser.parse(lines, new StructureHandler(ss2te));
+    }
+}
+----
+. *Test both layers* under `src/test/java/it/ddot/core/hostreader/<format>/`:
+** a parser test with a capturing `IHandler`, asserting which callbacks fire with which stripped text
+   (see `HtmlParserTest`);
+** a reader test that writes a file to a `@TempDir`, runs `new XxxReader().readTo(new FileResourceAddress(file), handler)`
+   with a collecting `ISourceHandler`, and asserts the events -- including subjects carried or reset across
+   structures, and line numbers (see `HtmlReaderTest`).
+. *Document it* in a `README.adoc` in the package, in the shape of the existing reader READMEs:
+  a header with `Extensions::`, `Kind::`, `Parser::`, `Reader::`; a _Content Types_ table
+  (host syntax | parser callback | block boundary); extraction notes; and pitfalls.
+  Add the reader to the table in `hostreader/README.adoc`.
+. *Enable it where readers are selected.* `hostreader.ReadersConfig` activates readers by file extension; a new
+  extension is enabled by default unless a configuration disables it.
+
+[[pitfalls]]
+== Pitfalls
+
+* *Host syntax that contains `..`.* Relative paths, ellipses, version ranges: if the host syntax can legitimately produce
+  two dots, resolve or remove it in the primary layer (see the AsciiDoc `link:` macro handling).
+* *Prose that documents ddot.it.* Any delivered line with two `..` is read as a triple. That is by design; authors use
+  `ddot.it/off` to exclude regions. A reader must not try to guess.
+* *Stripping too much.* Deliver the value, not the key (YAML), and the inner text, not the tags (XML/HTML) -- but do not
+  trim, unquote or unescape beyond what the host syntax itself defines. Events carry values verbatim.
+* *Multi-line constructs across structures.* A `,,` block, `!!block` body or `off` region left open at a `blockEnd()`
+  is cancelled with the triple that opened it. Choose block boundaries so that a construct written inside one host
+  structure can close inside it.

@@ -3,7 +3,7 @@
 
 Extensions:: `.adoc`, `.asciidoc`
 Kind:: `"asciidoc"`
-Parser:: `AsciiDocReader`
+Parser:: `AsciiDocParser`
 Reader:: `AsciiDocReader`
 
 See link:../../../../../../../../doc/how-to-write-a-reader.adoc[How to Write a Reader] for the general architecture.
@@ -45,6 +45,10 @@ collision before the secondary parser ever sees the line.
 | `\----` ... `\----`
 | `onSourceBlock`
 | Isolated block — source/listing content treated as triples
+
+| `* item`, `. item`, `- item`
+| `onListItem`
+| No block — the bullet is stripped, subject persists across list items
 
 | Body text
 | `onPlainLine`

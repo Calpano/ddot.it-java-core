@@ -1,0 +1,22 @@
+= Package `it.ddot.core.source`
+:icons: font
+// ddot.it/off
+
+Where content comes from: the abstractions for sources, the resources in them, and locations within those resources.
+They mirror URI infrastructure -- an `ISource` resolves addresses like a scheme handler, an `io.ISourceReader` processes
+content like a MIME-type handler.
+
+.Contents
+ISource:: One configured source, e.g. a Todoist account or a directory of Markdown files.
+ISourceScheme:: The scheme of a source.
+ISourceFormat:: The kind of source document, e.g. `markdown`, `yaml`, `java`.
+ISourceResourceAddress:: One resource within a source. Knows its format, but not from which source it was collected.
+FileResourceAddress:: A resource address for a local file.
+ISourceResourceData:: The I/O result of reading one resource: content hash, resource URI, last-modified time.
+LiveFileResourceData:: `ISourceResourceData` read live from a file.
+ISourceLocation:: A resource plus a 1-based line number (`-1` = unknown).
+ISnippet:: A chunk of a resource as a host reader parsed it: its format id and its start location in the resource.
+Snippet:: Record implementation. The `sourceLocation` URI is verbatim and is what `!!this` stands for (substituted by the collector).
+
+NOTE: An event's line is relative to its snippet. Use `IDdotEvent.sourceLocation()`, never `snippet().sourceLocation()`,
+for the event's position in the resource.

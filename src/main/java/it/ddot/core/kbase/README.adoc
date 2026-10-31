@@ -1,0 +1,35 @@
+= Package `it.ddot.core.kbase`
+:icons: font
+// ddot.it/off
+
+The public, implementation-agnostic API of the ddot.it knowledge model.
+The in-memory implementation is in link:inmem/README.adoc[`kbase.inmem`]; resource variants are in
+link:resource/README.adoc[`kbase.resource`].
+
+[[model]]
+== The data model
+
+.Contents
+IKnowledgeBase:: A named collection of graphs plus a document-level `@context` namespace map.
+IKnowledgeGraph:: One graph of nodes and (hyper-)edges, with querying, pattern matching, types, node merging and inference.
+Types are ordinary `has type` edges from a node to a type node. Most methods are defaults built on a few primitives
+(`addNode`, `addEdge`, `nodes`, `edges`, `removeEdge`, ...).
+IKnowledgeItem:: Supertype of nodes and edges: a multi-lingual label, optional JSON `data`, an optional resource, optional
+`IMeta` and the source locations it was derived from.
+IKnowledgeNode:: An item with a stable, graph-unique `id`.
+IKnowledgeEdge:: An item connecting nodes through a list of `Kendpoint`s -- n-ary by construction; a binary edge is the
+two-endpoint case (one `in`, one `out`).
+Kendpoint:: Immutable endpoint of an edge.
+IKnowledgeLabel:: A multi-lingual label: ordered value/language entries, the first being the primary display label.
+IKnowledgeItemResource:: Content attached to an item, either inline (`content()`) or referenced (`location()`: file,
+archive entry, remote URL). Static factories create the variants in `kbase.resource`.
+
+[[triples]]
+== The triple view and conversion
+
+IDdotItKnowledgeBase:: A flat subject/relation/object facade for CLI tools: query (also by prefix), add/remove triples,
+list subjects/relations/objects, and load/save the JSONL triple-event format. Implemented by `inmem.DdotItBaseOnKbase`.
+KnowledgeBases:: Conversion between `Kbase` and Connected JSON (`ICjDocument`, from graphinout): `importCj`, `fromCj`,
+`loadFromConnectedJson`, `toCj`.
+
+Triple events from the parser enter the model through `io.handler.TripleEvent2Kgraph`.

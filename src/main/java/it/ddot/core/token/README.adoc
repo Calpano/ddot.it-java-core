@@ -1,0 +1,30 @@
+= Package `it.ddot.core.token`
+:icons: font
+// ddot.it/off
+
+The spec-conformant positional tokenizer for ddot.it, and the vocabulary it classifies text into.
+It is the single source of lexical truth: parser, event exporter, HTML renderer and linter are all folds over its output.
+
+`DdotTokenizer.tokenize(String)` turns any text into the *canonical highlighter token stream* -- a flat list of
+`{line, start, end, token, text}` (0-based, end-exclusive; whitespace is not tokenized).
+
+[[conformance]]
+== Conformance
+
+The token vocabulary and lexical rules are specified in `test-data/tokens.md` and `test-data/ddot.ebnf` of the `ddot.it`
+repository. The *canonical* generator of `expected.tokens.json` is the TextMate grammar in `ddot.it-syntax-tools`; this
+class is a mirror, asserted byte-for-byte by `CorpusConformanceTest` and by `PreviewHtmlGoldenTest` in the IntelliJ plugin.
+The expected files are never regenerated from Java.
+
+.Contents
+DdotTokenizer:: The tokenizer. `tokenize(text, startExcluded)` starts inside an `off` region; `continuesPrevious(line)` tells
+whether a line continues the previous subject.
+Token:: One token: line, start, end, `TokenName`, text, and residual TextMate scopes (only for unclassified spans).
+TokenName:: The vocabulary: `subject`, `relation`, `object`, `doubledot`, `meta-doubledot`, `meta-delim`, `meta-separator`,
+`meta-relation`, `meta-object`, `meta-text`, `command`, `command-param`, `verbatim`, `block-end`, `excluded`.
+Tokens:: Serializes a token list as JSON exactly as `JSON.stringify(arr, null, 2)` would, for byte comparison with the corpus.
+Markers:: The literal markers: `..`, `....`, `,,`, `;;`, `!!`.
+Commands:: Regexes and helpers for commands (`ddot.it/...`, `!!...`, with optional `?query` / `#fragment`).
+PreCommand:: The structural commands -- `on`, `off`, `this`, blocks -- in all their spellings
+(`ddot.it/x`, `http(s)://ddot.it/x`, `!!x`).
+Whitespace:: Whitespace per the Parse Spec (TAB and Unicode `Zs`) and trimming helpers.

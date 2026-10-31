@@ -1,0 +1,25 @@
+= Package `it.ddot.core.io`
+:icons: font
+// ddot.it/off
+
+Reading and writing ddot.it text, and the interfaces readers push into.
+
+None of the classes here owns any grammar. Parser and exporter are *folds over* `token.DdotTokenizer`, the one
+implementation the golden corpus pins. They used to be independent regex parsers and silently dropped `!!block` bodies,
+free meta text, `;;`-separated inline meta and the untyped `,, .... value` shortcut; consuming the token stream makes such
+divergences impossible.
+
+.Contents
+DdotParser:: Text -> `List<DdotEvent>`. Replays the tokenizer's slot phases (`DdotSlot`) over each line's tokens and reads the
+slot values back. `parseChunk` returns a `Chunk` that says whether the text ends inside an open construct, inside an `off`
+region, and which subject is in scope -- what a streaming caller must carry to the next chunk.
+DdotEventExporter:: `toJsonl(events)` writes the canonical JSONL event spelling, asserted byte-for-byte against
+`expected.events.jsonl` in the shared corpus. The JSON is hand-written to stay dependency-free.
+DdotWriter:: The inverse of the line grammar: serializes one triple (plus metadata) back to canonical ddot.it --
+`S ..p.. O`, `S .... O` for `links to`, metadata as `,, ..k.. v ;; ..k2.. v2`. Used by write-back and by the linter.
+Everything it writes must parse back to what it was given.
+ISourceReader:: One reader handles one kind of source (e.g. `markdown`).
+ISourceHandler:: The sink for everything a reader recognizes: lines, triple events and the source/resource lifecycle.
+Deliberately knowledge-graph-free so the grammar and readers have no dependency on graphinout.
+
+See link:handler/README.adoc[`io.handler`] for the implementations of `ISourceHandler`.

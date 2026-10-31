@@ -5,7 +5,7 @@
 Extensions:: `.xml`
 Kind:: `"xml"`
 Parser:: `XmlParser`
-Reader:: `ReaderXml`
+Reader:: `XmlReader`
 
 See link:../../../../../../../../doc/how-to-write-a-reader.adoc[How to Write a Reader] for the general architecture.
 
@@ -30,7 +30,7 @@ See link:../../../../../../../../doc/how-to-write-a-reader.adoc[How to Write a R
 
 == Tag Stripping
 
-All XML tags are removed with a single regex before the text is delivered to `AbstractSourceReader`:
+All XML tags are removed with a single regex before the text is delivered to `Source2TripleEvents`:
 
 [source,java]
 ----

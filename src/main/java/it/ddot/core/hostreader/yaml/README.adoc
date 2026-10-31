@@ -4,7 +4,7 @@
 Extensions:: `.yaml`, `.yml`
 Kind:: `"yaml"`
 Parser:: `YamlParser`
-Reader:: `ReaderYaml`
+Reader:: `YamlReader`
 
 See link:../../../../../../../../doc/how-to-write-a-reader.adoc[How to Write a Reader] for the general architecture.
 
@@ -33,7 +33,7 @@ See link:../../../../../../../../doc/how-to-write-a-reader.adoc[How to Write a R
 
 == Key Stripping
 
-Only the _value_ portion of a `key: value` pair is passed to `AbstractSourceReader`.
+Only the _value_ portion of a `key: value` pair is passed to `Source2TripleEvents`.
 Passing the full line would make the key part of the triple subject.
 
 [source]
@@ -45,7 +45,7 @@ The parser finds the first `": "` separator and takes everything after it.
 
 == Value Cleaning (`YamlParser.clean()`)
 
-Before the value reaches `AbstractSourceReader`, two additional cleanups are applied:
+Before the value reaches `Source2TripleEvents`, two additional cleanups are applied:
 
 . **Inline comments** — strip everything from ` #` onward: +
   `Alice .. knows .. Bob  # annotation` → `Alice .. knows .. Bob`
