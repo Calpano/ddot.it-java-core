@@ -1,0 +1,21 @@
+= Package `it.ddot.core.embed`
+:icons: font
+// ddot.it/off
+
+Finds ddot.it source *embedded* in host files, and the triples and entity names it contains.
+This is the one place that decides which lines of a host file are ddot.it, so the IntelliJ plugin (which injects the
+language into the same blocks) and `ddot lint` (via link:../lint/README.adoc[`lint.DdotAnalysis`]) report on the same lines.
+
+.Supported hosts
+* `.ddot` -- the whole file is one chunk.
+* Markdown -- fenced blocks with info string `ddot`, `ddot.it` or `ddotit`.
+* AsciiDoc -- `[source,ddot]` and `[ddot]` listing blocks.
+
+.Contents
+DdotEmbeds:: Extracts the ddot.it chunks from raw host text (`extract`, `extractChunks`), with their offsets in the host file.
+Also answers which extensions are supported. Each chunk is ready for `DdotTokenizer.tokenize` or `DdotParser.parse`.
+DdotOccurrences:: Where entity names (subject, relation, object, metadata key or value) occur in a host file, as decided by
+the spec tokenizer. Prose, `ddot.it/off` regions, `!!block` bodies and commands never produce one.
+Offsets are mapped back to the host file. `at(...)` finds the occurrence under a caret offset.
+LocatedTriple:: A `DdotTriple`, the 1-based host-file line it is stated on, and its metadata pairs -- what every
+project-wide check reads. `extract(...)` produces them for one file.

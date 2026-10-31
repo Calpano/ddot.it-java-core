@@ -1,0 +1,755 @@
+= CDS Inference
+:toc:
+
+The design of an inference engine for a knowledge graph of triples that follows CDS (Conceptual Data Structures) and ddot.it.
+It answers "is there an `X P Y`?" for any relation `P` in the hierarchy, while the data states only concrete relations.
+
+The vocabulary and its rules are defined by https://ddot.it/spec/ddot-it-cds.html[CDS & Standards Alignment].
+That page is normative; where this document and the page disagree, the page wins.
+Implementation language: Java.
+
+[[requirements]]
+== Requirements
+
+[[req-data-model]]
+=== Data Model
+
+* A *concept* has an `id` and optionally a `label`; the label defaults to the id.
+* A *triple* is subject, predicate, object. Predicates are relations, and relations are concepts too.
+* *Base triples* come from the user; *inferred triples* come from the engine.
+* A triple base is a set: the same triple stated twice is one triple.
+* The logic is *monotonic* and has *no negation*.
+Rules only ever add triples, and nothing is ever rejected as inconsistent.
+Whatever the user writes, including cycles, has to mean something.
+
+[[req-vocabulary]]
+=== Relation Vocabulary
+
+The engine uses the ddot.it names, not the CDS ids or CDS labels.
+The CDS ids and labels read in different directions (`hasAfter` is labelled "comes before"), so keying on either invites direction errors.
+
+Every relation comes as a pair with its inverse.
+Every pair except `has inverse` has a super-relation, and so does its inverse (by r17).
+T marks transitive relations and S marks symmetric ones. A relation is symmetric exactly when it is its own inverse.
+
+[cols="2,2,2,1,1"]
+|===
+|ddot.it name |Inverse |Super-relation |T |S
+
+5+|_Root_
+|`related` |itself |none | |✓
+
+5+|_Linking_
+|`has similar` |itself |`related` | |✓
+|`links to` |`is linked from` |`related` | |
+
+5+|_Under `links to`: ordering, detail, annotation_
+|`has next` |`has previous` |`links to` |✓ |
+|`has detail` |`has context` |`links to` | |
+|`annotates` |`has annotation` |`links to` | |
+
+5+|_Tagging and typing_
+|`is tag of` |`has tag` |`annotates` | |
+|`has instance` |`has type` |`is tag of` | |
+
+5+|_Part-of and type hierarchy_
+|`has part` |`is part of` |`has detail` |✓ |
+|`has subtype` |`has supertype` |`has detail` |✓ |
+
+5+|_Identity and aliasing_
+|`same as` |itself |`has similar` |✓ |✓
+|`is alias of` |`has alias` |`has similar` | |
+|`replaces` |`is replaced by` |`has similar` |✓ (ddot.it only) |
+
+5+|_Meta level_
+|`has inverse` |itself |none | |✓
+|===
+
+The inverse of each relation sits under the inverse of its super-relation (r17).
+For example, `has type` ⊑ `has tag` ⊑ `has annotation` ⊑ `is linked from` ⊑ `related`.
+Because `has type` sits under `has tag`, typing a thing also tags it, and type browsing and tag browsing share one UI.
+
+Three *item types*, which are concepts and not relations, classify relations:
+`relation`, and below it `symmetric relation` and `transitive relation`.
+
+Axiomatic triples, asserted before any user data. For every pair `(r, inv)` with super-relation `sup`:
+
+----
+(r,   has type,    relation)
+(inv, has type,    relation)
+(r,   has inverse, inv)
+(sup, has subtype, r)
+----
+
+In addition, the relations marked T and S in the table carry `has type transitive relation` or `has type symmetric relation`,
+and `relation has subtype symmetric relation` and `relation has subtype transitive relation` hold.
+
+Users may define their own relations as sub-relations of any relation, including `is alias of` and `same as`.
+Multiple inheritance is allowed, so the relation hierarchy is a DAG, but in practice it is mostly a tree.
+
+[[req-rules]]
+=== Inference Rules
+
+The engine must produce the same answers as the forward-chaining rules of the spec.
+How it gets there (materialised, normalised away, or checked at query time) is free.
+
+[cols="1,3,5"]
+|===
+|Rule |Name |Effect
+
+|r01 |transitive |`x p y`, `y p z`, `p` transitive ⇒ `x p z`
+|r02 |inverse (A-box) |`x p y`, `p has inverse q` ⇒ `y q x`
+|r03 |inverse (T-box) |*not active*; covered by r09 on the symmetric `has inverse`
+|r04 |type inheritance |`x has type t`, `t has supertype u` ⇒ `x has type u`
+|r05 |relation inheritance |`x p y`, `p has supertype u` ⇒ `x u y`
+|r06–r08 |alias in subject / predicate / object |`a is alias of r` ⇒ every triple with `a` in that position also holds with `r`
+|r09 |symmetric (A-box) |`x p y`, `p` symmetric ⇒ `y p x`
+|r10 |self-inverse implies symmetric |`p has inverse p` ⇒ `p has type symmetric relation`
+|r11 |symmetric implies self-inverse |the converse of r10
+|r12 |inverse of inverse |`p has inverse q`, `q has inverse r` ⇒ `p same as r`
+|r13 |inverse inherits type |a relation and its inverse share all types (transitive, symmetric, …)
+|r14–r16 |same as in subject / predicate / object |`a same as b` ⇒ every triple with `a` in that position also holds with `b`
+|r17 |sub-relation carries over to inverses |`a ⊑ c`, inverses `b` and `d` ⇒ `b ⊑ d`
+|r18 |tags propagate to parts |`a has tag t`, `a has part p` ⇒ `p has tag t`
+|===
+
+r05 can trigger r01, so the two must run together for a complete closure.
+
+ddot.it adds rules that CDS lacks:
+
+* `replaces` and `is replaced by` are transitive.
+* A `has subtype` cycle collapses to `same as`: every member of the cycle is one entity.
+In a monotonic language a cycle cannot be an error, so it means identity.
+* *Typing and subtyping create types:*
+** `x has type t` ⇒ `t has type type`. Whatever something is typed with is a type.
+** `t has subtype u` ⇒ `t has type type` and `u has type type`. Both ends of a subtype edge are types.
+** Relations are the exception: if either end of a `has subtype` edge is a relation, both ends get `has type relation` instead of `has type type`.
+The relation hierarchy is made of `has subtype` triples too, and relations get a type of their own rather than showing up among the types.
++
+Because `has type` ⊑ `has tag`, typing also tags (`x has tag t`); this rule adds that `t` is a type, not just a tag.
+It applies to the axioms too: since every relation `has type relation`, `relation` is a type, and so are `symmetric relation` and `transitive relation`.
+The relation case also declares user relations: `links to has subtype depends on` makes `depends on` a relation without a separate `has type relation`.
+Applied to its own conclusion, the rule gives `type has type type`, a harmless self-loop.
+
+[[req-decisions]]
+==== Decided Readings
+
+Where the spec's rules, read literally, leave a choice, or where reading them literally gives something nobody meant, this is how they are read.
+`CdsFixpointOracle` applies them literally, with these readings, and both engines answer as it does.
+
+Aliases are one-way, as r06–r08 say::
+What is said about an alias holds for what it is an alias of, in every position; nothing flows back.
+`JS is alias of JavaScript` and `JavaScript has part closures` do not make `JS has part closures`.
+An alias is a name that hands its statements on, not a second name of the same concept -- that is `same as`.
+Two consequences follow from the rules and are kept:
+an alias of a name an identity statement used hands that statement on (`a same as b`, `b is alias of c` ⇒ `a same as c`);
+and a name with two alias targets hands each target's alias statement to the other, so the two targets become aliases of each other.
+
+An alias of a relation is one way too::
+The convention that every relation has an inverse, `a has inverse ^a`, says nothing about `a` that r06 hands on.
+Read literally it would: `r has inverse ^a` for the relation `r` that `a` aliases, and r03 and r12 would make `a same as r` -- every alias of a relation a second name of it.
+So `a` stays an alias: its triples are `r`'s (r07), and it lies under `r` for `isSubRelation`, but no `has subtype` triple places it, so it lies under `related` as a relation nobody placed.
+
+The hierarchy is triples::
+"`P` ⊑ `Q`" is the triple `Q has subtype P` (see <<one-hierarchy>>), and r17 derives such triples.
+So `has tag has subtype has type` holds from the vocabulary alone, and `is linked from has subtype is needed by` once `depends on` with the inverse `is needed by` lies under `links to`.
+Without chains (r01 off) only single steps hold: `has tag has subtype has type`, not `has annotation has subtype has type`.
+
+`same as` is reflexive, and no premise::
+Anything is the same as itself, and so whatever lies above `same as`: `x has similar x`, `x related x`, for every name.
+It is a tautology, answered for every name -- and never used as a premise of another rule.
+As a statement about an alias, r06 would hand `A same as A` on as `T same as A`, and every alias would be the same as what it aliases.
+So however `x same as x` is derived -- r12 derives it for every relation with an inverse, r14–r16 for every member of a same-as class -- it is answered, not kept.
+
+Chains run over every triple::
+r01 applies to derived triples as much as to stated ones.
+A transitive relation above `has type` chains through the types type inheritance derives, one above `has tag` through the tags parts inherit.
+
+A cycle reaches itself::
+A chain that leaves `x` and comes back makes `x p x`: `monday has next tuesday has next wednesday has next monday` makes `monday has next monday`.
+
+Rules come in groups (transitive, inverse, symmetric, alias, same as, type inheritance, part), and there are four predefined configurations:
+*All*, *AllExceptTransitive* (the usual choice when the closure is too costly), *OnlyTransitive* and *None*.
+The engine must support at least these four.
+
+[[req-engine]]
+=== Engine Requirements
+
+Scale::
+The meta level is small: a few dozen relations.
+The data is large: many triples, queried many times.
+Running a full fixpoint over all the data is too expensive.
+
+Canonical form::
+Every data triple is stored once, with canonical subject, predicate and object, in the canonical direction of its predicate.
+A triple and its inverse reading are the same stored fact.
+
+No materialised subsumption::
+Only concrete triples are stored.
+A query for a general relation must not need the triples r05 would derive.
+
+Subsumption query::
+"Is `P` (transitively) a sub-relation of `Q`?" in constant or near-constant time.
+The data pass asks this for many triples.
+
+Pattern query::
+Given `X`, `Y` and any `P` in the hierarchy: is there a triple between `X` and `Y` whose predicate lies under `P`, in either direction?
+`P` may be as general as `related`, which subsumes almost everything.
+
+Provenance::
+Every inferred triple lists the triples it follows from, whether base or inferred.
+A triple may have several justifications.
+
+Truth maintenance::
+When a supporting triple goes away, a triple that loses its last justification goes too, recursively.
+
+Display::
+The UI shows the name the user expects, not the canonical one: a canonical concept maps back to its label or alias.
+
+Exchangeable store::
+The engine runs over any triple store: the `KnowledgeGraph`, or a plain in-memory store.
+A fact carries its provenance (file, line range, reader), and a derived fact's store says how it was derived.
+
+[[req-queries]]
+=== Queries
+
+On top of the inference, a query layer with the expressiveness of SPARQL CONSTRUCT, without its syntax:
+
+* triple patterns with variables in any position, the relation included;
+* several patterns joined on shared variables (a basic graph pattern);
+* property paths: a sequence of relations (a property chain), a relation read backwards, alternatives, one-or-more and zero-or-more steps;
+* a CONSTRUCT template, instantiated once per solution;
+* a limit on the number of solutions (SPARQL `LIMIT`): a join over a general relation such as `related` can have millions.
+
+Every pattern matches *entailed* triples: a pattern for `related` matches a stated `has subtype`.
+The query layer therefore needs one more thing from the engine than a yes/no question: all entailed triples matching a pattern.
+
+[[concept]]
+== Concept
+
+[[one-hierarchy]]
+=== One Hierarchy for Items and Relations
+
+CDS has one hierarchy relation, `has subtype`, for items and relations alike.
+The relation hierarchy is the set of `has subtype` triples between relations.
+"`P` ⊑ `Q`" means `Q has subtype P`, stated or inferred.
+The type hierarchy that r04 walks uses the same relation between types.
+
+Anything used as a predicate is a relation, and a relation that nobody placed in the hierarchy lies directly under `related`.
+Otherwise a plain `a mentions b` would not answer `a related b`.
+`has inverse` is the one exception, because the spec gives it no super-relation.
+
+The same machinery that compiles the relation hierarchy can therefore also compile the type hierarchy.
+The difference is size: there are a few dozen relations, but there may be many types.
+
+[[direction]]
+=== Two Sides of Every Pair, and Canonical Direction
+
+Below `has similar`, every inverse pair splits across the two sides of the root:
+one relation lies under `links to`, its inverse under `is linked from`.
+This is what gives relations an inherent direction.
+Sub-relations inherit their side and cannot run against it, because r17 places the inverse of a sub-relation on the other side.
+
+The canonical direction of a pair is its `links to` side.
+These are exactly the names in the ddot.it column of the spec's mapping table:
+`links to`, `has next`, `has detail`, `annotates`, `is tag of`, `has instance`, `has part`, `has subtype`.
+A triple written the other way, such as `a has type T`, is stored reversed, as `T has instance a`, and no inverse triple is materialised.
+
+The branch under `has similar` has no side.
+`same as` and `has similar` are symmetric, and `related` and `has inverse` are symmetric too.
+The two directed pairs there, `is alias of` / `has alias` and `replaces` / `is replaced by`, take the mapping-table name as canonical:
+`is alias of` (it points at the canonical concept) and `replaces`.
+
+A symmetric relation has no direction to canonicalise.
+Its triple is stored once, in a fixed order of the two ends, and r09 is answered by looking in both orders.
+
+[[inverses]]
+=== Inverses
+
+* Any relation may have explicit inverses (`P has inverse Q`); `has inverse` is itself symmetric.
+* *Synthetic inverse:* `+^P+` is `P` read backwards.
+It exists for every relation, so every relation has at least one inverse that can be named.
+`+^^P = P+`.
+* A symmetric relation is its own inverse (r10, r11): `+^P = P+`.
+* Inverse chains produce identity (r12): `P has inverse Q` and `Q has inverse R` give `P same as R`.
+* Subsumption carries over to inverses (r17): `P ⊑ Q` ⇒ `+^P ⊑ ^Q+`.
+* Inverses share their types (r13): the inverse of a transitive relation is transitive.
+
+When several names denote the same direction, the canonical one is chosen as follows:
+
+. A human-defined name beats a synthetic one: `+^P+` is used only when no human name exists.
+. Among human names, the smallest id wins, compared lexicographically by id, not by label.
+. All other names become aliases of the canonical name and remain available for display.
+
+[[identity]]
+=== Identity: Same As, and Aliases Beside It
+
+`same as`, the identities from inverse chains (r12) and collapsed subtype cycles mean "these are one concept".
+They go into *one* union-find structure.
+Normalising subject, predicate and object to their class representative realises r14–r16 in a single step, without rewriting any triple.
+A class has no direction; its canonical name is its smallest name.
+Path compression keeps lookups near-constant.
+
+An alias is no member of that structure: it hands its statements on, and is not the same concept (see <<req-decisions>>).
+Aliases are edges, `alias → resolved`, used in three places:
+
+* at the meta level, every meta statement is applied to every alias variant of its names -- r06–r08, literally, on the few statements that say something about relations, types and identity;
+* between relations, an alias is a sub-relation: r07 makes a triple with the alias as its relation one with the relation it aliases, which is what lying under it means;
+* on the data, a question about `y` counts what is stated about anything that is an alias of `y`, and a step that lands on an alias lands on what it aliases too.
+
+`+x same as x+` is answered for every name and kept for none.
+
+[[rule-realisation]]
+=== How Each Rule Is Realised
+
+[cols="1,2,4"]
+|===
+|Rule |Realised by |How
+
+|r02, r09 |canonical direction |A triple is stored once; a query looks in both directions, with `+^P+` for the reverse one.
+|r03, r10–r13, r17 |meta fixpoint |Facts about relations, settled before the data is read.
+|r05 |query time |The compiled hierarchy answers "is the stored predicate under `P`?"
+|r14–r16 |normalisation |Union-find on subject, predicate and object.
+|r06–r08 |meta fixpoint and query time |Alias variants of every meta statement; at question time, what is stated about an alias counts for what it aliases.
+|subtype cycle |meta fixpoint and union-find |A `has subtype` cycle merges its members into one class.
+|r01, `replaces` |query time or materialised |Data-level closure, over derived triples too; see <<transitivity>>.
+|r04 |query time or materialised |Needs the type hierarchy; see <<type-inheritance>>.
+|r18 |materialised or query time |A join of two data relations; see <<tags-to-parts>>.
+|typing and subtyping create types |meta fixpoint, then data pass or query time |Relation ends are settled in the meta fixpoint; the rest needs one premise, so no join; see <<types-of-types>>.
+|===
+
+Rules r01, r04 and r18 are the only ones that combine two *data* triples.
+Everything else either concerns the meta level or rewrites a single triple.
+That split is what lets the data pass be a single linear pass.
+
+[[meta-fixpoint]]
+=== Meta Fixpoint
+
+The layers are not strictly sequential: subsumption can produce new alias relations, and a new alias can make another relation a meta relation.
+Rather than iterating over all the data, the engine runs a small fixpoint over the meta level only.
+
+. Start from the core meta graph: the built-in relations, item types and axiomatic triples.
+. Run semi-naively from a frontier.
+When a relation `foo` turns out to be a sub-relation of a meta relation (`has subtype`, `has inverse`, `is alias of`, `same as`), `foo` is a meta relation too.
+In the next round, all `foo` triples are loaded as meta triples.
+. Stop when nothing changes. The sets of known relation kinds only grow, so the iteration terminates, and cycles are harmless.
+
+The result contains canonical predicates, canonical directions, the complete sub-relation closure, and the types of each relation (transitive, symmetric).
+It is compiled once into a structure that answers "is `P` under `Q`?".
+
+[[data-pass]]
+=== Data Pass
+
+. A single pass over the data triples.
+Each triple is normalised: canonical subject, predicate and object (union-find), then canonical direction (reversed when needed).
+. Each triple is indexed by subject, by object and by subject–object pair, so both directions and the reverse `+^P+` lookup are single lookups.
+. Subsumption is not materialised; it is checked at query time.
+
+[[query]]
+=== Query `X P Y`
+
+The question "is `P` a subtype of `Q`?" flips around:
+given `X` and `Y`, is there an edge between them whose predicate lies under `P`?
+The stored edges carry `has subtype` or `links to`; the question asks for `related`.
+
+. Normalise `X`, `Y` and `P`. If `P`'s canonical direction is the other way round, swap `X` and `Y` and ask for the canonical relation.
+. Fetch the edges `X → Y` and test each predicate against `P`.
+. Fetch the edges `Y → X` and test each predicate against `+^P+`. For a symmetric `P` this is the same test.
+. For a transitive `P`, the answer may also be a path; see <<transitivity>>.
+
+Because stored triples are concrete and canonical, every answer is a stored triple, and its provenance comes with it.
+
+[[patterns]]
+=== Patterns and Queries
+
+The engine answers a pattern `match(s?, p?, o?)`, where any position may be open, with every entailed triple, in canonical names.
+Two names of one concept are one node here, so an answer never lists the same thing twice under its two names.
+
+The query layer is built only on `match`, so it works over every engine:
+
+. Join the patterns one at a time, the most bound first.
+After the first, each pattern is asked with the variables earlier patterns bound, which turns a scan into a lookup.
+. Evaluate a property path from whichever end is bound, step by step: a sequence walks its steps; `+p++` and `+p*+` walk until nothing new is reached.
+. Instantiate the CONSTRUCT template once per solution, leaving out any triple with an unbound variable.
+
+A path such as `+p++` is how a query follows a relation the vocabulary does not make transitive.
+For a relation it does make transitive, a plain pattern already follows chains (r01).
+
+[[provenance]]
+=== Provenance and Truth Maintenance
+
+Each justification records the triples a result depends on:
+
+* a normalised triple: the base triple plus *every* alias triple on the chain to the canonical concept;
+* a reversed triple: the original plus the `has inverse` triple;
+* a subsumed answer: the original plus the `has subtype` triples that place its predicate under the queried one;
+* a transitive answer: the triples along the path.
+
+A triple may have several justifications.
+When a supporting triple is removed, the engine checks whether each dependent triple has another justification, and removes it otherwise, recursively.
+
+[[implementation]]
+== Implementation Ideas
+
+[[subsumption-structure]]
+=== Compiling the Relation Hierarchy
+
+Computed once, after the meta fixpoint, and only read afterwards.
+
+==== Bit Matrix
+
+One bitset per relation, holding all of its super-relations.
+
+[cols="1,1"]
+|===
+|Pro |Con
+
+a|
+* Lookup is one bit test, strictly constant.
+* Handles multiple inheritance with no special case.
+* Trivial to build from the closure.
+* A few dozen relations take a few hundred bytes.
+
+a|
+* Quadratic in the number of relations, so it does not scale to a large hierarchy.
+In particular, it is a poor fit for the type hierarchy (r04).
+* Enumerating the sub-relations of `P` means scanning.
+|===
+
+==== Interval Labeling on a Spanning Tree, Plus Extra Ancestors
+
+Take a spanning tree of the DAG (one main parent per node) and number it depth-first with pre/post intervals.
+`P` ⊑ `Q` in the tree when `Q`'s interval contains `P`'s.
+The non-tree edges become short per-node lists of extra ancestors.
+A query does the interval test first and checks the extra list only if that test fails.
+
+[cols="1,1"]
+|===
+|Pro |Con
+
+a|
+* Fits the shape of the hierarchy: mostly a tree, with the occasional multiple inheritance a user adds.
+One comparison answers most tests.
+* Extra-ancestor lists are mostly empty, so multiple inheritance costs only where it occurs.
+* Linear space, so it also serves the much larger type hierarchy.
+
+a|
+* Near-constant rather than constant.
+* More code: choosing the spanning tree, numbering it, and closing the extra lists over the tree.
+|===
+
+==== DAG Compression by Topological Levels
+
+Merge nodes that have the same ancestor set and label the merged nodes level by level.
+This is overkill for a few dozen relations and the hardest option to build and debug.
+
+*Tendency:* use the bit matrix for relations while the meta level stays small.
+If r04 is answered at query time, use interval labeling for the type hierarchy.
+Hide both behind one "is `P` under `Q`?" call.
+
+[[identity-impl]]
+=== Alias and Same As (r06–r08, r14–r16)
+
+[cols="1,1,1"]
+|===
+|Approach |Pro |Con
+
+|Union-find normalisation
+a|
+* One stored triple per fact.
+* Near-constant lookup.
+* Covers alias, `same as`, r12 and subtype cycles uniformly.
+a|
+* The UI needs a map back from canonical to displayed names.
+* Merging two classes means re-normalising the triples indexed under the losing representative.
+
+|Materialise rewritten triples
+a|
+* A literal implementation of the rules.
+a|
+* Multiplies triples by the size of each class.
+* Provenance and truth maintenance become heavy.
+|===
+
+[[query-impl]]
+=== Answering `X P Y`
+
+[cols="1,2,2"]
+|===
+|Approach |Pro |Con
+
+|Materialise subsumed triples (r05)
+a|
+* One index lookup per query.
+a|
+* Every triple is also stored as a `related` triple, and again for every level in between.
+* Violates the no-materialisation requirement.
+
+|Predicate-first: expand `P` downwards and look up each sub-relation
+a|
+* A few targeted lookups when `P` is specific.
+* Works with a plain predicate index.
+a|
+* Useless for `related`, which expands to nearly every relation.
+
+|Node-first: fetch all edges between `X` and `Y`, then filter by `⊑ P`
+a|
+* A node pair usually has a handful of edges, so the cost does not depend on how general `P` is.
+* Uses exactly what the compiled hierarchy is good at.
+* Answers are stored triples, so provenance comes along.
+a|
+* Needs a subject–object pair index.
+* Slower than predicate-first for a leaf `P` on a densely connected pair.
+|===
+
+*Preferred:* node-first, looking in both directions.
+Predicate-first remains an option for very specific `P`.
+
+[[transitivity]]
+=== Data-Level Transitivity (r01, `replaces`)
+
+`has next`, `has part`, `has subtype`, `same as` and `replaces` are transitive.
+`same as` is already covered by union-find, and a `has subtype` cycle by collapse.
+Because of r05, a path for `P` may use edges of any sub-relation of `P`.
+
+[cols="1,2,2"]
+|===
+|Approach |Pro |Con
+
+|Materialise the closure
+a|
+* Constant-time queries.
+a|
+* The closure can blow up; this is why *AllExceptTransitive* exists.
+* Every change needs heavy truth maintenance.
+
+|Lazy: breadth-first search at query time, following edges whose predicate is under `P`, with a cache
+a|
+* Nothing stored up front.
+* Provenance is simply the path.
+a|
+* Query cost grows with path length.
+* The cache has to be invalidated when the graph changes.
+
+|Off (*AllExceptTransitive*)
+a|
+* Cheap and predictable.
+a|
+* Incomplete for transitive relations.
+|===
+
+[[type-inheritance]]
+=== Type Inheritance (r04)
+
+`x has type u` follows from `x has type t` and `t` ⊑ `u` in the type hierarchy.
+
+[cols="1,2,2"]
+|===
+|Approach |Pro |Con
+
+|Query time: fetch `x`'s stored types and test each with the compiled type hierarchy
+a|
+* The same pattern as the relation query.
+* No extra triples.
+a|
+* The type hierarchy is data-sized, so it needs interval labeling, not a bit matrix.
+* "All instances of `u`" means collecting the instances of each subtype.
+
+|Materialise
+a|
+* Simple, and fast for the "all instances of `u`" question.
+a|
+* Multiplies `has type` triples by hierarchy depth.
+|===
+
+[[tags-to-parts]]
+=== Tags Propagate to Parts (r18)
+
+r18 combines two data relations: `a has tag t` and `a has part p` give `p has tag t`.
+Since `has type` ⊑ `has tag`, a type of the whole also becomes a *tag*, but not a type, of each part.
+With `has part` transitive, this reaches every part at any depth.
+
+[cols="1,2,2"]
+|===
+|Approach |Pro |Con
+
+|Materialise after the data pass
+a|
+* Tag queries stay simple lookups.
+a|
+* Many triples on deep part trees.
+* Truth maintenance on both premises.
+
+|Query time: for `p has tag t`, walk `p`'s `is part of` chain and check each ancestor's tags
+a|
+* No extra triples.
+a|
+* Every tag query becomes a walk up the part tree.
+|===
+
+[[types-of-types]]
+=== Typing and Subtyping Create Types
+
+`x has type t` gives `t has type type`; `t has subtype u` gives `t has type type` and `u has type type`,
+unless either end is a relation, in which case both ends get `has type relation`.
+
+The relation case belongs to the meta fixpoint: it can make a new concept a relation, and a new relation can make further triples meta triples.
+Once the fixpoint stands, the data pass knows every relation and needs only a set-membership check to tell the two cases apart.
+
+In canonical form, the premises are the stored triples `t has instance x` and `t has subtype u`.
+So a concept that is not a relation is a type exactly when it has an outgoing `has instance` edge or any `has subtype` edge, in either direction.
+
+[cols="1,2,2"]
+|===
+|Approach |Pro |Con
+
+|Materialise in the data pass: when a `has instance` or `has subtype` triple between non-relations is indexed, add `type has instance t` for each type end, once per distinct type
+a|
+* Only one triple per distinct type, since the triple base is a set.
+* "All types" becomes an ordinary lookup of `type has instance ?`.
+* r04 and the UI see types without special cases.
+a|
+* The triple has one justification per `has type` or `has subtype` triple involving `t`, which can be many.
+Truth maintenance removes it only when the last one goes.
+
+|Query time: `t` is a type when it is not a relation and has an outgoing `has instance` edge or any `has subtype` edge
+a|
+* No triples and no justifications to maintain.
+* Always consistent with the data.
+a|
+* Every query that touches `type` needs a special case, including `x has type type` and `type has instance ?`.
+* "All types" means scanning for concepts with such edges, unless a separate index keeps them.
+|===
+
+*Tendency:* materialise.
+The triple count is small, and a justification can be counted instead of listed, since any qualifying edge of `t` supports it equally.
+
+[[engine-shape]]
+=== Engine Shape
+
+[cols="1,2,2"]
+|===
+|Approach |Pro |Con
+
+|Generic forward-chaining rule engine, with the spec's cost model for join order
+a|
+* A direct, easily checked implementation of r01–r18.
+* Rule sets can be switched per configuration.
+a|
+* Materialises everything the rules derive, which conflicts with the no-materialisation requirement.
+* Hard to keep fast on large data.
+
+|Specialised passes: meta fixpoint, union-find, canonical index, query-time subsumption
+a|
+* A single linear data pass.
+* Constant-time checks.
+a|
+* Every rule needs its own argument that it is covered.
+* Needs a test that compares the results with a naive rule engine on small graphs.
+|===
+
+*Preferred:* specialised passes, with a naive rule engine kept as a test oracle for r01–r18 on small graphs.
+The spec's cost model (penalties for `has subtype`, `has inverse`, `same as`, aliases and `has type` by frequency) then matters only for the oracle.
+
+[[match-impl]]
+=== Matching Patterns
+
+[cols="1,2,2"]
+|===
+|Approach |Pro |Con
+
+|Candidates, then test: for a bound subject, try every node connected to it against the relation
+a|
+* Obviously right; this is what the oracle does.
+a|
+* Scans a whole connected component per pattern, which on a real graph is nearly everything.
+
+|Enumerate directly: follow stored edges out of the bound end, keep those under `P`, and add chains, type ancestors, tagged parts and virtual types
+a|
+* Cost is proportional to the answer, not to the graph.
+a|
+* One enumeration per rule, each of which must be proven complete against the oracle.
+
+|Materialise per relation on demand, cached
+a|
+* Repeated patterns become lookups.
+a|
+* Memory, and invalidation on every change.
+|===
+
+[[join-impl]]
+=== Joining Patterns
+
+[cols="1,2,2"]
+|===
+|Approach |Pro |Con
+
+|Most-bound-first, nested loops (current)
+a|
+* Simple; every pattern after the first is a lookup.
+a|
+* Ignores how many answers a pattern has; two unbound patterns in a bad order explode.
+
+|Order by estimated cardinality: per-relation counts from the store
+a|
+* Picks the selective pattern first, as a database does.
+a|
+* Counts for entailed relations must include their sub-relations.
+
+|Hash joins between independently evaluated patterns
+a|
+* Good when two patterns share a variable but neither is selective.
+a|
+* Materialises both sides.
+|===
+
+[[built]]
+=== What Was Built
+
+Two engines answer the same questions, `CdsReasoner`, over any `TripleStore`: `CdsInferenceEngine`, the oracle, written to be read against the spec, and `CdsEngine`, written to be fast and held to the oracle's answers question by question.
+They live in `ddot.it-java-core`, package `it.ddot.core.cds`, with the store interfaces in `it.ddot.core.store`; they were built in adir, which now depends on them.
+xref:cds-inf-perf.adoc[The performance log] has how `CdsEngine` came to be what it is, and what each choice was measured to cost.
+Of the options above, it took:
+
+[horizontal]
+Relation hierarchy:: an ancestor bitset per node, computed once per strongly connected component; a subtype cycle is one component and one concept.
+The hierarchy's own `has subtype` triples -- the ones r17 places on the `is linked from` side, which no stored triple answers -- are walked from its edges, and an alias edge is not one.
+Same as:: union-find with a parity bit, normalised on the way in; `x same as x` answered, never kept.
+Aliases:: one-way edges beside it: variants at the meta level, a sub-relation between relations, and at question time what an alias states counts for what it aliases.
+`X P Y`:: node-first -- the facts between the two nodes, a binary search in the shorter node's sorted list -- then each tested against `P`.
+Chains:: an index per transitive relation, built on first use: intervals over a spanning forest, exact for trees, with GRAIL's labels and a pruned search otherwise; a cycle reaches itself. Where a step can be a derived triple -- `has type`, `has tag` or their inverses under the relation -- a walk over every derivable step instead. Proofs still walk.
+Reference:: `CdsFixpointOracle`, the rules applied literally to every triple until nothing follows, for small graphs; both engines agree with it.
+Type inheritance, tags to parts:: at question time, not materialised.
+Types from typing and subtyping:: at question time.
+Matching patterns:: enumerated from the bound end, rule by rule.
+Joins:: the pattern that makes the fewest solutions first, by the reasoner's estimate on a sample of the solutions so far; a path evaluated once, as a table. A node with many triples has them grouped by relation.
+Change:: grown, never built anew while the store only grows: from the axioms, batch by batch -- facts wait, the meta level settles as a worklist, what it changed is mended in place, the facts are stored. A removal builds anew.
+Threads:: questions in parallel under a read lock; changes under the write lock.
+
+[[open]]
+=== Open Questions
+
+Settled since they were first asked here: bit matrix or intervals (both -- a bitset per component for the hierarchy, intervals for chains); data-level transitivity (lazy, indexed on first use); chains over derived triples (they are followed); whether `same as` and `is alias of` differ (they do -- see <<req-decisions>>); compiling anew as a graph grows (it never is); join order (by estimates, see xref:cds-inf-perf.adoc#joins-merged[Join Order, Merged]); and why `holds` cost 16 µs on `relations-100` (the old corpus, which merged its nodes into hubs).
+
+Wiring the engine into adir::
+`KnowledgeGraph` implements `TripleStore`, and the engines run over it in the tests, but adir still runs its own inference: it stores inverses, chains and widened types as facts with a `Derivation` each.
+Read by the engine, those stored conclusions count as stated -- right answers, twice the facts, and a `why` that points at a derived fact rather than a file.
+Two ways in: beside it first, with new API operations for patterns and queries; then replacing adir's inference passes one at a time, comparing what the UI shows before and after.
+
+Removal::
+A model grows from the axioms and is never built anew while the store only grows (see xref:cds-inf-perf.adoc#never-again[Never Built Anew]); a removal still builds it anew, since identity is a union-find, which cannot split.
+Removing a data fact -- most of what changes when a file does -- needs only taking it out of the lists at its ends.
+
+Dense aliases::
+Two things that share an alias hand each other everything said about them (see <<req-decisions>>), and many names doing so make a dense alias graph, every meta statement applied to every variant.
+adir's vocabulary used to make `label` an alias, which did exactly that to every file sharing a name; `label` is a value now, as the spec has it.
+A real fix for dense alias graphs: treat a set of names that alias each other as one unit in the meta fixpoint.
+
+A relation on both sides::
+A user relation can end up under both `links to` and `is linked from`, for example through an explicit inverse that contradicts its side.
+The monotonic logic accepts it, and canonical direction has a tie-breaker.
+It almost certainly means a modelling mistake, so it is a warning: lint rule DL023 in `it.ddot.core.lint.DdotAnalysis`, which the ddot.it IntelliJ plugin and `ddot lint` both show, on every statement that places the relation.
+The warning names the statements a `why` of each side rests on, so an inverse that puts a relation on the other side is named with it.
+
+The oracle and `+p++` on real graphs::
+One `links to+` on adir took the oracle 210 s, so real graphs draw no `+p++` probes unless `-Dcds.thorough` is set.

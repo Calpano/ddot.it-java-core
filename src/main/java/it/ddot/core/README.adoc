@@ -1,0 +1,35 @@
+= Package `it.ddot.core`
+:icons: font
+// ddot.it/off
+
+The root package of the ddot.it Java core: a few constants shared by every layer below it.
+Everything substantial lives in the sub-packages.
+
+.Contents
+DdotSlot:: The slots of the tokenizer's automaton -- `SUBJECT`, `RELATION`, `OBJECT` and the metadata slots
+`META_START`, `META_RELATION`, `META_OBJECT`, `META_NEXT` (just after an inline `;;`).
+Used by `io.DdotParser` to replay the slot phases over a line's tokens.
+DdotSourceFormats:: Short lowercase names of host formats (`markdown`, `asciidoc`, ...), as carried on every event a reader emits.
+Not an exhaustive list.
+DdotVocabulary:: Built-in relation names: `TEXT` (`"text"`, free meta text after `,,`) and `LINKS_TO`
+(`"links to"`, the relation of an untyped `S .... O` link).
+
+[[sub-packages]]
+== Sub-packages
+
+.Pipeline, from text to graph
+* link:token/README.adoc[`token`] -- the spec-conformant positional tokenizer; the single source of lexical truth.
+* link:event/README.adoc[`event`] -- the triple-event model (`DdotEvent`, `DdotTriple`, metadata).
+* link:io/README.adoc[`io`] -- parser, writer and JSONL exporter folded over the token stream; reader/handler interfaces.
+* link:io/handler/README.adoc[`io.handler`] -- adapters from line streams to events and from events to a `Kgraph`.
+* link:hostreader/README.adoc[`hostreader`] -- readers that pull ddot.it out of Markdown, AsciiDoc, HTML, XML, YAML and `.ddot` files.
+* link:source/README.adoc[`source`] -- where content comes from: sources, resource addresses, snippets, locations.
+* link:kbase/README.adoc[`kbase`] -- the knowledge-base API (graphs, nodes, hyperedges, labels, resources).
+
+.Tools built on top
+* link:embed/README.adoc[`embed`] -- which lines of a host file are ddot.it; entity occurrences; located triples.
+* link:lint/README.adoc[`lint`] -- `ddot lint` / `ddot fmt` and the project-wide analysis shared with the IntelliJ plugin.
+* link:cds/README.adoc[`cds`] -- CDS vocabulary, inference engines and a CONSTRUCT-style query engine.
+* link:store/README.adoc[`store`] -- the fact and triple-store interfaces reasoners run over.
+* link:html/README.adoc[`html`] -- syntax-highlighted HTML rendering of ddot.it source.
+* link:annotation/README.adoc[`annotation`] -- `@DdotIt`, for embedding triples in Java bytecode.

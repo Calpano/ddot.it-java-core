@@ -11,7 +11,7 @@
     -->
     <groupId>it.ddot</groupId>
     <artifactId>ddotit-core</artifactId>
-    <version>0.2.2</version>
+    <version>0.3.0-SNAPSHOT</version>
     <packaging>jar</packaging>
 
     <name>ddot.it core</name>
@@ -47,6 +47,13 @@
             <artifactId>truth</artifactId>
             <version>${truth.version}</version>
             <scope>test</scope>
+            <exclusions>
+                <!-- Vulnerable (CVE-2026-110257 et al.); Truth only uses it to enrich failure messages -->
+                <exclusion>
+                    <groupId>org.ow2.asm</groupId>
+                    <artifactId>asm</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
     </dependencies>
 
@@ -56,6 +63,24 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <version>3.5.2</version>
+            </plugin>
+
+            <!--
+              Also ship the tests as ddotit-core:tests. adir runs the CDS engine contracts on graphs only
+              adir can read (CdsRealCorpusContract, the benchmarks on real corpora); it gets the contracts
+              and the corpora from here rather than keeping copies.
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <version>3.4.2</version>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>test-jar</goal>
+                        </goals>
+                    </execution>
+                </executions>
             </plugin>
 
             <!--

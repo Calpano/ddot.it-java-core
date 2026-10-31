@@ -1,5 +1,8 @@
 /**
- * Linting and canonical formatting of ddot.it source — the engine behind {@code ddot lint} / {@code ddot fmt},
+ * The warnings about ddot.it a project gets, wherever they are shown: {@link it.ddot.core.lint.DdotAnalysis}, which
+ * the IntelliJ plugin and {@code ddot lint} both report from, and its {@link it.ddot.core.lint.Finding}s.
+ *
+ * <p>Linting and canonical formatting of ddot.it source — the engine behind {@code ddot lint} / {@code ddot fmt},
  * specified in {@code linting.adoc} at the repository root.
  *
  * <p>Entry point: {@link DdotLinter#lint(java.util.List)} turns any whitespace-legal

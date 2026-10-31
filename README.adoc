@@ -35,6 +35,9 @@ class kbase
 class hostreader
 class html
 class lint
+class embed
+class cds
+class store
 class annotation
 
 token --u> core
@@ -47,6 +50,15 @@ io --u> event
 io --u> source
 io --u> token
 lint --u> token
+lint --u> embed
+lint --u> cds
+lint --u> store
+lint --u> event
+embed --u> token
+embed --u> io
+embed --u> event
+embed --u> source
+cds --u> store
 kbase --u> core
 kbase --u> event
 kbase --u> io
@@ -68,11 +80,13 @@ hostreader --u> ioHandler
 
 .Layers
 * API Layers
-** source, annotation
+** source, store, annotation
 ** core
 ** event, token
 * Impl Layers
-** html, io, lint
+** html, io, embed
+** cds
+** lint
 ** kbase
 ** io.handler
 ** hostreader
@@ -81,6 +95,7 @@ hostreader --u> ioHandler
 * `it.ddot.core.annotation` — the `@DdotIt` marker. Only used when annotating Java source code directly with ddot.it text.
 * `it.ddot.core.event` — evens fired when parsing
 * `it.ddot.core.source` — the snippet and source-location model, the resource-address abstractions a host application implements to feed ddot.it text in
+* `it.ddot.core.store` — the fact and triple-store interfaces (`TripleStore`, `IFact`, `IDerivation`, `ILineRange`) a reasoner such as `cds` runs over; no dependencies.
 * `it.ddot.core.token` — the tokenizer and its role model, the grammar itself, and the `!!command` vocabulary.
 * `it.ddot.core` — Constants
 
@@ -90,10 +105,32 @@ hostreader --u> ioHandler
 * `it.ddot.core.html` — helper code for rendering syntax-highlighted ddot.it syntax as HTML.
 * `it.ddot.core.io` — the main Parser and Writer
 * `it.ddot.core.kbase` — a knowledge model (a tiny queryable, in-memory triplestore)
-* `it.ddot.core.lint` — the linter with its diagnostics, severities and line changes.
+* `it.ddot.core.embed` — where a host file's ddot.it is: the ddot blocks of Markdown and AsciiDoc, the triples in them with their host lines, and where each entity name occurs.
+* `it.ddot.core.cds` — the CDS inference engine: the vocabulary and rules of https://ddot.it/spec/ddot-it-cds.html[CDS & Standards Alignment], `CdsEngine`, the reference engines `CdsInferenceEngine` and `CdsFixpointOracle`, and the query layer (`CdsQuery`, `CdsQueryEngine`). It runs over the triple-store interfaces in `it.ddot.core.store`. Design: link:doc/cds-inf.adoc[], history and measurements: link:doc/cds-inf-perf.adoc[].
+* `it.ddot.core.lint` — the linter with its diagnostics, severities and line changes; and `DdotAnalysis`, the warnings a project gets wherever they are shown (see <<warnings>>).
 
 
 
+
+[[warnings]]
+== Warnings
+
+`DdotAnalysis` owns the warnings about ddot.it: the IntelliJ plugin only marks them in the editor, and `ddot lint` (in link:../ddot.it-java[`ddot.it-java`]) only prints them, so both show the same ones on the same lines.
+
+[cols="1,1,4",options="header"]
+|===
+|Rule |Scope |What
+
+|DL010–DL012 |file |The linter's report-only diagnostics: lines that look like triples but are dropped.
+|DL017 |file |A triple line with no object: `s ..p..`.
+|DL020 |project |A cardinality bound violated, with what the project entails under CDS: values stated through aliases, sub-relations and inverses count, instances of a subtype of the domain are instances of the domain.
+|DL021 |project |A cardinality that is no whole number.
+|DL022 |project |A name also spelled in another letter case.
+|DL023 |project |A relation under both `links to` and `is linked from`: it has no direction, so one statement placing it is probably the wrong way round.
+|DL024 |project |A name the project says is replaced by another (`a ..is replaced by.. has type`), on every place it is used: replacing is an editor instruction, not a second name, so a reasoner does not read `a` as `has type`.
+|===
+
+The project-wide rules read every file's triples, as `LocatedTriple` lists per file -- the plugin keeps them in its index, `ddot lint` extracts them from the files it crawls.
 
 == Dependencies
 We try to minimize dependencies but couldn't avoid to at least require the modern Jackson 3.x libs.
@@ -103,6 +140,7 @@ We try to minimize dependencies but couldn't avoid to at least require the moder
 * link:{url-graphinout}[graphinout] `reader-ddot` — the reason this artifact stands alone.
 * link:../ddot.it-java[`ddot.it-java`] — the not-yet-released command-line tool.
 * link:../ddot.it-intellij[`ddot.it-intellij`] — the official ddot.it IntelliJ plugin.
+* link:../adir[adir] — runs the CDS engine over its knowledge graph.
 
 [[spec]]
 == Where the specification lives
@@ -116,6 +154,6 @@ Its `test-data/cases` directory is the corpus that the `ddot.it-javalib` `DdotCo
 == Building
 
 .Commands
-* `mvn install` — compiles, runs the tests and installs `it.ddot:ddotit-core` into the local repository.
+* `mvn install` — compiles, runs the tests and installs `it.ddot:ddotit-core` into the local repository, with its tests as `ddotit-core:tests` (adir runs the CDS contracts on its own graphs with them).
 
 Java 25 or newer is required.

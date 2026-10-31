@@ -1,0 +1,747 @@
+= CDS Inference: Performance Log
+:toc:
+
+What was tried to make the CDS inference engine fast, how it was measured, and what came of it.
+The design is xref:cds-inf.adoc[CDS Inference]; this is the lab notebook next to it.
+
+[[method]]
+== Method
+
+The reference engine, `CdsInferenceEngine`, stays as it is: written to be read against the spec, not to be fast.
+It is the *oracle*.
+Every faster engine implements the same `CdsReasoner` interface and must give the oracle's answers.
+
+[[tests]]
+=== Tests
+
+Every engine runs three suites, each by extending one abstract test class:
+
+`CdsReasonerContract`::
+The rules one at a time on small hand-written graphs: r01–r18, the ddot.it additions, the types rule, the four rule sets, pattern matching and queries.
+
+`CdsCorpusContract`::
+Whole corpora, with generated questions (_probes_).
++
+* *Properties* every engine must have, the oracle included, so the oracle is checked without a second oracle:
+reading a relation backwards (`+^p+`) does not change the answer; what holds for a relation holds for `related`, `links to`, `is linked from` and `has similar` above it; every stated triple holds; every triple a derivation rests on was stated or is an axiom; whatever `holds` says, `match` lists.
+* *Differential*: every probe asked of the candidate and of the oracle, answers compared with `equals`.
+
+`CdsBenchmark`::
+Off by default; see <<benchmark>>.
+
+[[corpora]]
+=== Corpora
+
+Real::
+What adir makes of three projects: `adir`, `backstart-conf`, `backstart-app`, each a `KnowledgeGraph` with adir's own vocabulary.
+Skipped where the project is not checked out.
+
+Synthetic::
+Grown from a seed, so a failure reproduces and a measurement repeats.
+Each stresses one thing:
++
+[horizontal]
+`types`:: a type DAG with two-parent types, aliases, a subtype cycle, instances typed both ways round (r04, types rule)
+`deep-types`:: three long type chains (r04 walking far)
+`relations`:: user relations under the vocabulary and each other, two parents, inverses, aliases, symmetric and transitive declarations, some under meta relations (meta fixpoint, r05, r17)
+`parts`:: part trees with tags and types on the wholes, `has next` sequences (r01, r18)
+`identity`:: same-as clusters, alias chains, an inverse chain (r06–r08, r12, r14–r16)
+`mixed`:: all of the above in one graph
++
+Each comes at a scale: 10 in the tests, 100 in the benchmark.
+
+[[probes]]
+=== Probes
+
+Drawn from the corpus with a seed (`CdsProbes`):
+
+* `holds`: stated triples and the same read backwards; the ends of a stated triple with any relation, either way round; two steps apart, for chains; things against types; random pairs;
+* `match` with subject and relation, relation and object, or subject and object bound;
+* queries: two joined patterns, a property chain, `+p++`, an inverse joined with a variable relation;
+* vocabulary: `isSubRelation`, `canonical`, `isType`, `isRelation`, `isSymmetric`, `isTransitive`, `canonicalForm`.
+
+[[benchmark]]
+=== Benchmark
+
+----
+mvn test -Dtest=CdsBenchmark -Dcds.bench [-Dcds.engines=oracle,…] [-Dcds.corpora=adir,…]
+----
+
+For each corpus and engine: the time to compile (a fresh engine, cold), and the mean time per `holds` probe, per `match`, per query and per vocabulary question.
+Each is the best of three runs after one to warm up.
+The table is also written to `target/cds-bench.txt`.
+
+[[results]]
+== Results
+
+[[findings-harness]]
+=== The Harness Itself
+
+The corpus tests pass on the oracle: no property is violated on any synthetic corpus under any rule set, nor on the three real projects.
+
+A mutation check shows the differential tests have teeth.
+With V1's tag enumeration (r18 read forwards) switched off, the `parts` and `mixed` corpora fail, through a `match` and a property-chain query alike, while the four corpora without part trees pass.
+
+The first benchmark run on the oracle never finished.
+The time budget is checked between probes, and a single oracle probe can outlast it: a `+p++` query on `deep-types-100` calls `match` once per step of a 2 000-step chain, and each call derives every node in the component.
+The oracle's `match` and queries are therefore measured on the scale-10 corpora only.
+
+[[findings-oracle]]
+=== What the Harness Found in the Oracle
+
+The differential tests compare a candidate with the oracle, so a disagreement can be either one's fault.
+Twice so far it was the oracle's, both times in `match`, both found on real graphs:
+
+A relation read backwards::
+The oracle's `match` tries only nodes connected to the bound end by stored triples.
+A relation read backwards, `^r`, is in no stored triple, but is typed all the same: every relation, either way round, `has type relation`, and in adir's vocabulary `relation` is a kind of `thing`.
+So `match(?, has type, thing)` on the adir graph found 579 answers where V1 and V2 found 708, although the oracle's own `holds` said yes to every one of the 129 missing.
+
+A relation only used as a predicate::
+Same cause: `mentions`, used as a predicate and never as a subject or object, is a relation, is typed, and is connected to nothing.
+
+The fix keeps the oracle simple: its candidates now always include every relation, both ways round, and every type -- the only things typed without a stored triple saying so.
+Both cases are in `CdsReasonerContract` as `aRelationReadBackwardsIsMatchedToo`.
+
+A third was a meaning nobody intended: for a type `T`, the oracle said `^T has type type`.
+A name read backwards is only meaningful for a relation, so now only a type's own name is a type -- in the oracle and in V1 and V2 alike.
+
+A relation nobody stated::
+Found by the growing-store test (see <<v4>>).
+Asked for the canonical form of `a ^r b` for a relation `r` it had not compiled, the oracle kept `^r`: it had no list of names for the class, treated both directions as unnamed, and let the string order decide -- in which `^` comes before any letter.
+Once `r` was stated it answered `b r a`, so the answer to the same question depended on when it was asked.
+Now a name compiled into no class is its own member, as it already was for naming; in `CdsReasonerContract` as `aRelationNobodyStatedKeepsItsOwnName`.
+
+The real corpora are indexed in parallel, so `store.all()` came back in a different order each run and the seeded probes differed: V1 passed a run that V2, with the same bug in the oracle, failed.
+Probes now sort the facts before drawing.
+
+[[v1]]
+=== V1: Enumerate, Do Not Test
+
+What::
+* `match` enumerates the answers from the bound end: stored edges, the inverse of a relation, type ancestors and descendants, the tags of wholes and the parts below a tagged thing, chains.
+With the relation open, it enumerates every node related to the bound end (every relation but `has inverse` lies under `related`) and then works out once, per pair, which relations hold.
+The oracle instead derives every candidate node in turn.
+* The vocabulary's own relations (`has type`, `has tag`, …) are resolved to ids once per compile, not by name on every step.
+* The hierarchy index is an `int[]` instead of a `HashMap<Integer, Integer>`.
+
+Result:: see <<table>>.
+`match` and queries become 20× to 500× faster, `holds` 20–45 % faster, compile unchanged.
+On the real graphs, a `match` takes 0.02–0.08 ms and a query 0.4–2.7 ms.
+
+Two outliers remain::
+* `relations-100`: 309 µs per `holds` (the oracle: 429 µs).
+* `deep-types-100`: 290 ms to compile, 11 µs per `holds`, 57 ms per query.
+
+[[v2]]
+=== V2: Do Not Prove What Nobody Asked About
+
+Found by sampling V1's stacks on `relations-100`: nearly every sample was in `Identity.explain`.
+`holds` was `why(...).isPresent()`, so every yes/no question built a full proof -- walking the alias and inverse graph for each name it went through -- and threw it away.
+
+What::
+* `holds` and `match` derive without proofs.
+The derivation code is the same; a thread-local flag makes each step return "found" instead of assembling what it rests on.
+`why` still builds the whole proof.
+* The hierarchy closure is computed once per strongly connected component (Tarjan's algorithm, iteratively, since a type chain can be thousands deep), children before parents, each component's ancestor set the union of its parents'.
+V1 walked the hierarchy once per node, which is quadratic along a chain.
+The components also give the subtype cycles to collapse directly, instead of testing every pair of nodes that reach each other.
+
+Result::
+* `relations-100`: `holds` 274 µs → 53 µs.
+* `deep-types-100`: compile 246 ms → 7.8 ms.
+* The real graphs: `holds` 1.4 µs on adir and backstart-app, 0.9 µs on backstart-conf -- about twice as fast as the oracle.
+
+Not done, on purpose::
+Evaluating `+p++` for a transitive `p` as plain `p`, since the reasoner already follows the chain.
+It would be wrong in one case: the engines follow chains over stated triples only (see the open questions in xref:cds-inf.adoc#open[the design]), and a `+p++` in a query follows every entailed step.
+
+[[findings-suite]]
+=== Keeping the Suite Fast
+
+With probes drawn deterministically, the differential test on adir took 214 s for each engine's test class.
+One question was all of it: `Visual Basic source.svg links to+ ?y` took the oracle 210 s, since a `+p++` asks `match` once per step, and the oracle's `match` derives every node of the component at each.
+The answer was right, and so was the oracle -- only slow.
+
+Two changes brought all six engines' 372 tests from over twenty minutes to about a minute:
+
+* The oracle's answers are cached for the JVM, by corpus and rule set, so every engine's test class compares against one set.
+* The real corpora draw no `+p++` or `+p*+` queries unless `-Dcds.thorough` is set; the synthetic ones always do.
+
+[[v3]]
+=== V3: Smaller, and Search Only the Chains That Can Exist
+
+What, for memory::
+* The stored triples are one array; each node has an `int[]` of the indexes of its triples.
+V2 kept a `HashMap<Long, List<Stored>>` by pair and a `HashMap<Integer, List<Stored>>` by node: a boxed key, a map entry and a list per pair and per node.
+* No pair index at all: the triples between `x` and `y` are found by scanning whichever of the two has fewer triples.
+* The literal indexes -- a copy of every fact as a `Triple`, and a list per subject -- are built only for the two rule sets that read them, `NONE` and `ONLY_TRANSITIVE`.
+* A name alone in its class is not listed as a member of it.
+* `CompactIdentity`, a copy of `Identity` that allocates a name's list of joins only when it has one.
+* The list of all facts is let go of once compiled.
+
+What, for speed::
+Every relation knows the transitive relations above it.
+A chain from `x` to `y` needs a step leaving `x` and a step arriving at `y`, so a chain is searched only for a transitive relation that both have a step for.
+V2 searched one chain per transitive relation under the asked one -- on `relations-100`, eighty of them under `related`.
+
+[[v4]]
+=== V4: Do Not Compile Again What Only Grew
+
+adir's graph grows while it is read, a file at a time, and every engine so far threw away everything it had compiled at every change.
+
+What::
+When the store has only grown -- the last fact seen is still where it was -- and none of the new facts changes the meta level, V4 normalises and indexes the new facts into the compiled model, and that is all.
+A fact changes the meta level if its relation is new, if its relation says something about identity, inverses or the hierarchy, or if it types something as a relation.
+`has type` to anything else is data, and the commonest fact there is: it only makes its type a type.
+Otherwise V4 compiles anew, as before.
+
+The cost::
+The arrays grow in place, so V4 serialises its public methods: questions cannot be asked in parallel.
+The earlier engines replace the model instead, and could be read concurrently.
+
+How it is tested::
+`agreesWithTheOracleWhileGrowing`, in `CdsCorpusContract` for every engine: a store grows in eight batches, one fact is removed halfway, and after each batch the engine -- kept, not made anew -- must answer as a fresh oracle does.
+With V4's append broken to drop what it was given, four of the six corpora fail it; without it, all pass.
+
+[[v3-v4-results]]
+=== What V3 and V4 Did, Measured
+
+The benchmark gained two columns for this round: `heap MB`, what a compiled engine keeps over and above its store (used heap after full collections, with and without the engine), and `grow ms`, the corpus added to an empty store in 50 batches, as adir's walker adds files, with a question after each.
+
+V3::
+* Memory fell to 40 %: 35 → 14 MB on adir, 53 → 15.5 MB on `parts-100`; compiling got faster with it (adir 81 → 31 ms).
+* `relations-100`: `holds` 48 → 30 µs.
+* But `holds` on the real graphs got *ten times slower*: adir 1.3 → 14.3 µs.
+The pre-check scanned the triples of both ends of every question before asking whether any transitive relation lay under the asked one at all -- usually none does -- and one end is often a hub, a type with thousands of instances.
+V2 checked for a transitive relation first, and walked from the near end only.
+
+V4::
+Growing got 3× to 20× cheaper on the synthetic corpora -- `parts-100` 298 → 61 ms, `types-100` 97 → 17 ms -- and not at all on the real ones: adir 528 → 535 ms.
+Almost every batch of a real graph still compiled anew.
+
+[[v5]]
+=== V5: The Pre-Check Where It Pays, and New Relations Appended
+
+What::
+* V3's pre-check only when a transitive relation lies under the asked relation, and over the end with fewer triples.
+* A relation used for the first time is appended rather than compiled: it lies under `related` and nothing else, so it is two new nodes, each with a copy of `related`'s ancestors.
+A known relation in a new spelling -- `^has type` -- is classified as that relation, so it is no plain data.
+* A count of compiles and why each happened, printed by the benchmark.
+
+Result::
+`holds` back to V2's speed on the real graphs (adir 1.8 µs, backstart-conf 1.1 µs) at V3's memory; `relations-100` `holds` 30 → 15.5 µs.
+Growing adir still compiled 46 times in 50 batches, and now it said why:
++
+[cols="3,>1,>1"]
+|===
+|What stopped an append |adir |backstart-conf
+
+|an alias (`has alias`, `is alias of`) |31 |18
+|a relation typed as `relation` |11 |15
+|a `has subtype` or `has supertype` |3 |4
+|===
++
+adir's `KnowledgeGraph` states `r has type relation` for every relation the first time it is used, and folds every Java file into the type it declares with an alias.
+
+[[v6]]
+=== V6: Append the Meta Statements a Growing Graph Makes
+
+What::
+* An alias or `same as` where at most one of the two names is known.
+The known name's class stays the root, so nothing indexed under it moves; the other joins it.
+* `r has type relation` where `r` is already a relation, or is known to nothing: then it becomes one, under `related`.
+Typed symmetric or transitive, it still compiles: that changes identity or the chains.
+* `sup has subtype sub` where `sub` is not yet in the hierarchy: nothing lies below it, so it is one node whose ancestors are `sup`'s and itself.
+* Each fact is checked against the state the facts before it in the batch left: a name an earlier fact used is no longer new.
+When one fact cannot be appended the model is half changed, and the engine throws it away for a new one.
+
+How it is tested::
+`factsArrivingLaterCountAsMuchAsTheFirst` gained an alias of a known type, a new type under it, and a relation typed as one.
+With the union's order swapped -- the new name's class becoming the root -- that test and the growing-store test on the `identity` corpus both fail.
+
+Result::
+Growing adir 584 → 223 ms, backstart-app 359 → 129 ms, backstart-conf 125 → 55 ms; `deep-types-100` 55 → 7 ms, compiling once.
+On adir, 26 of 50 batches still compile, 18 of them for an alias between two names both already known -- a Java file, with statements about it, and the type it declares.
+
+[[v7]]
+=== V7: Merge Two Known Names, and a Second Parent
+
+What::
+* An alias or `same as` between two names that are both already known -- a Java file with statements about it, and the type it declares -- merges their classes by moving the triples of the class with fewer to the other, which stays the root.
+Every triple is rewritten in place and listed at its new end; nothing else is indexed by a plain concept.
+A relation, or a type in the hierarchy, still compiles: those are indexed in more places than their triples.
+* A type given a second parent: everything at or below it gains the new parent's ancestors -- one pass over the hierarchy, OR-ing one bitset into the ones below.
+A parent that is itself below the type would make a cycle, and compiles.
+
+What the harness missed, and then did not::
+With `move` disabled, only the hand-written contract test failed.
+The growing-store test did not: every synthetic corpus stated identity before saying anything about the names, so two known names were never merged.
+A real graph does it the other way round.
+A new corpus, `late-identity`, states links, types and parts about many names first and only then makes some of them one; it catches the mutant.
+
+Result::
+Growing adir 219 → 168 ms (14 compiles in 50 batches, from 26), backstart-app 147 → 76 ms, backstart-conf 55 → 37 ms, `types-100` 32 → 8 ms.
+What still compiles on adir is rarer and harder: a relation placed in the hierarchy (6), a type in the hierarchy made one with another name (5).
+
+[[v8]]
+=== V8: Four Arrays Instead of an Object per Triple
+
+What::
+* The stored triples are four parallel arrays -- subject, relation, object, source -- instead of a 32-byte object each.
+A record is made when a step or a proof needs one.
+* After compiling, every array and every node's list of triples is cut to what it holds: they grow by doubling, so up to half of each was empty.
+
+Result::
+Memory down by a third: adir 14.2 → 9.0 MB, backstart-app 11.1 → 7.4 MB, backstart-conf 3.3 → 2.3 MB.
+But `holds` 10–40 % slower: the hot loops now made a record for every triple they looked at, matching or not.
+
+[[v9]]
+=== V9: Make a Record Only for a Triple That Matches
+
+What::
+The loops that look at a node's triples -- steps along a relation, the chain pre-check, the reason something is a type -- read the arrays directly, and make a record only for a triple they keep.
+
+Result::
+V7's speed at V8's memory on the real graphs: `holds` on adir 1.76 µs at 9.0 MB (V7: 1.87 µs at 14.2 MB), backstart-app 1.57 µs at 7.4 MB.
+`relations-100`, all chains, stays slower than V7 (19 µs against 14): every matching step still makes a record and a hop.
+
+[[v10]]
+=== V10: The Pair Index Back, at No Memory
+
+What::
+After compiling, each node's list of triples is sorted by the triple's other end, so the triples between `x` and `y` are a binary search in the shorter of the two lists.
+An append adds to an unsorted tail, searched linearly.
+A merge changes the other end of every triple it moves, in the lists of their other ends too, so it marks those lists unsorted until the next compile.
+
+How it is tested::
+Two mutants: ignoring the sorted part fails 22 tests; keeping a list marked sorted after a merge fails the growing-store test on `late-identity`.
+
+Result::
+`holds` on the real graphs back to V2's speed at V9's memory: adir 1.86 → 1.09 µs (V2: 1.65 in the milestone run), backstart-app 1.67 → 1.27 µs, backstart-conf 1.13 → 0.77 µs, all at 2.3–9.1 MB.
+
+[[v11]]
+=== V11: An Index per Transitive Relation
+
+What::
+For a transitive relation a question needs a chain of, an index built on first use and dropped when a step of that relation is appended or two names are merged.
+The relation's stated steps are condensed into their strongly connected components -- a cycle is one component, whose members reach each other -- and numbered by a depth-first walk of a spanning forest, so that a component's forest descendants lie strictly inside its `[pre, post]`.
++
+* Where every component has at most one parent -- a part tree, a type tree -- the forest is the graph, and containment is the whole answer; the descendants are a contiguous run of the walk.
+* Otherwise containment still proves reachability, and `low`, the smallest `post` below a component, disproves most of the rest: a node can only be below if its `post` lies within `[low, post]` (the GRAIL labelling).
+What neither settles is searched, pruned by the same test at every step.
++
+Proofs still walk: an index says that a chain exists, not which.
+
+How it is tested::
+Mutants: treating every graph as a tree fails 11 corpus tests; never invalidating fails 3; losing the cycle case fails 2.
+None of the three failed a hand-written test, so the contract gained `chainsRunThroughDiamondsAndCycles` -- two paths to one part, a three-day week -- which now fails for the first and third on its own.
+
+Result::
+`holds` on `deep-types-100` 4.2 → 0.28 µs, on `parts-100` 1.15 → 0.46 µs; `match` on `relations-100` 1.13 → 0.38 ms, queries there 1.5 → 0.57 ms, on `deep-types-100` 25 → 21 ms.
+`relations-100`'s single `holds` stays at 16 µs: its time is not in chains.
+
+[[v12]]
+=== V12: Questions in Parallel
+
+From V4 on, the engines serialise every question, since appending grows arrays in place.
+adir's server asks from a thread per request.
+
+What::
+* A read-write lock instead of a monitor.
+Every question takes the read lock; bringing the model up to date takes the write lock, then downgrades to the read lock for the question that found it stale.
+* `ConcurrentIdentity`: asking about a name nobody used registers it, and that is the one write a question makes.
+It is synchronized and published through a concurrent map, with the arrays it grows written before and read after.
+Compressing the paths to a class's root -- a write on every lookup in the earlier engines -- happens only while writing, and all at once when a write ends.
+* The caches filled on first use -- canonical direction, transitive relations above a relation, V11's indexes -- are concurrent maps.
+
+How it is tested::
+`CdsConcurrencyContract`: eight threads ask every probe, each in its own order, and must all get the oracle's answers; and seven threads ask without pause while an eighth grows the store, after which the answers must be the oracle's.
+Its first version passed even with the oracle, which is not safe at all: the probes only named things the store knew.
+Each thread now also asks about names nobody used, and the oracle fails 7 of 13 -- names registered under another name's id, wrong answers, an `ArrayIndexOutOfBoundsException` -- while V12 passes all of them.
+V11 passes too, slowly: it serialises.
+
+Result::
+A new column, `par µs`: the `holds` probes shared by eight threads, wall time per probe.
++
+[cols="2,>1,>1,>1",options="header"]
+|===
+|Corpus |V11, one thread |V11, eight |V12, eight
+
+|adir |1.11 |1.40 |0.25
+|backstart-app |1.01 |1.34 |0.25
+|parts-100 |0.46 |0.62 |0.25
+|relations-100 |16.10 |18.47 |2.25
+|===
++
+Four to seven times the throughput, for 0.4 MB more heap; a single question is as fast as V11's.
+
+[[table]]
+=== The Milestones, All Corpora
+
+The oracle and the engines each round kept: V2 (proofs only on demand), V5 (small, and appends), V7 (appends most meta statements), V9 (arrays, and no records but for matches).
+Measured 2026-09-30 in one run on the machine adir is developed on, `-Dcds.bench`, best of three after a warm-up.
+
+How far to trust it::
+The same engine on the same corpus measures up to 40 % apart between runs -- V9's `holds` on adir was 1.76 µs in one run and 3.15 µs in this one -- since the machine also runs an IDE and adir's own daemons.
+Differences below a factor of 1.5 are not findings.
+
+What it shows::
+* Per question on the real graphs, V2 is still the fastest (`holds` 1.1–1.8 µs, against 1.3–3.2 µs for V5 to V9).
+V2 has a pair index -- the triples between `x` and `y` in one lookup -- which V3 dropped for memory; from V3 on, the node with fewer triples is scanned, and between two hubs that costs.
+* V9 keeps a quarter of V2's memory (adir 8.9 MB against 34.9 MB) and grows the graph nine times faster (adir 201 ms against 1 761 ms).
+* On the synthetic corpora V5 to V9 are as fast as or faster than V2, `relations-100` and `deep-types-100` by 2× to 3×.
+
+[horizontal]
+compile:: a fresh engine, cold, in ms
+holds:: µs per question
+match, query:: ms per question; queries limited to 1 000 solutions; _n/m_ not measured -- the oracle's patterns take hours on a large corpus (<<findings-harness>>)
+heap:: MB the compiled engine keeps over its store
+grow:: ms for the corpus added in 50 batches, a question after each
+true %:: the share of `holds` probes answered yes -- the same for every engine on a corpus, a check that all were asked the same
+
+[cols="2,1,>1,>1,>1,>1,>1,>1,>1,>1",options="header"]
+|===
+|Corpus |Engine |Facts |Compile |holds |match |query |Heap |Grow |True %
+
+|types-10 |oracle |738 |3.3 |0.88 |0.34 |5.84 |0.5 |51 |42.8
+|types-10 |v2 |738 |1.6 |0.48 |0.01 |0.11 |0.5 |42 |42.8
+|types-10 |v5 |738 |1.4 |0.26 |0.01 |0.07 |0.2 |9 |42.8
+|types-10 |v7 |738 |1.1 |0.28 |0.00 |0.07 |0.2 |3 |42.8
+|types-10 |v9 |738 |1.2 |0.33 |0.01 |0.08 |0.2 |3 |42.8
+|deep-types-10 |oracle |1{nbsp}097 |4.0 |1.41 |1.55 |133.45 |1.0 |154 |42.5
+|deep-types-10 |v2 |1{nbsp}097 |1.0 |1.04 |0.01 |0.99 |1.0 |33 |42.5
+|deep-types-10 |v5 |1{nbsp}097 |1.6 |0.50 |0.01 |0.71 |0.4 |14 |42.5
+|deep-types-10 |v7 |1{nbsp}097 |1.9 |0.54 |0.01 |0.70 |0.4 |1 |42.5
+|deep-types-10 |v9 |1{nbsp}097 |1.9 |0.52 |0.01 |0.72 |0.4 |1 |42.5
+|relations-10 |oracle |567 |0.5 |2.03 |0.14 |0.54 |0.2 |15 |48.1
+|relations-10 |v2 |567 |0.5 |0.59 |0.01 |0.04 |0.2 |14 |48.1
+|relations-10 |v5 |567 |0.8 |0.55 |0.01 |0.04 |0.1 |11 |48.1
+|relations-10 |v7 |567 |0.9 |0.51 |0.03 |0.10 |0.1 |13 |48.1
+|relations-10 |v9 |567 |1.0 |0.56 |0.01 |0.04 |0.1 |11 |48.1
+|parts-10 |oracle |9{nbsp}752 |3.4 |1.20 |_n/m_ |_n/m_ |5.4 |123 |41.0
+|parts-10 |v2 |9{nbsp}752 |3.5 |0.69 |0.01 |0.21 |5.4 |113 |41.0
+|parts-10 |v5 |9{nbsp}752 |1.7 |0.41 |0.00 |0.15 |1.7 |7 |41.0
+|parts-10 |v7 |9{nbsp}752 |1.6 |0.32 |0.00 |0.14 |1.7 |4 |41.0
+|parts-10 |v9 |9{nbsp}752 |1.4 |0.34 |0.00 |0.14 |1.4 |5 |41.0
+|identity-10 |oracle |1{nbsp}263 |0.6 |0.75 |0.15 |7.80 |0.6 |16 |39.1
+|identity-10 |v2 |1{nbsp}263 |0.6 |0.32 |0.00 |0.04 |0.6 |14 |39.1
+|identity-10 |v5 |1{nbsp}263 |0.4 |0.29 |0.00 |0.05 |0.3 |11 |39.1
+|identity-10 |v7 |1{nbsp}263 |0.4 |0.34 |0.00 |0.06 |0.3 |2 |39.1
+|identity-10 |v9 |1{nbsp}263 |0.4 |0.29 |0.00 |0.04 |0.3 |2 |39.1
+|late-identity-10 |oracle |535 |0.2 |0.90 |0.12 |1.80 |0.2 |5 |41.6
+|late-identity-10 |v2 |535 |0.1 |0.34 |0.00 |0.02 |0.2 |5 |41.6
+|late-identity-10 |v5 |535 |0.1 |0.30 |0.00 |0.02 |0.1 |1 |41.6
+|late-identity-10 |v7 |535 |0.1 |0.31 |0.00 |0.02 |0.1 |1 |41.6
+|late-identity-10 |v9 |535 |0.1 |0.28 |0.00 |0.02 |0.1 |1 |41.6
+|mixed-10 |oracle |2{nbsp}555 |1.1 |0.69 |0.64 |3.19 |1.4 |34 |35.6
+|mixed-10 |v2 |2{nbsp}555 |1.0 |0.32 |0.00 |0.01 |1.4 |27 |35.6
+|mixed-10 |v5 |2{nbsp}555 |0.5 |0.22 |0.00 |0.00 |0.5 |5 |35.6
+|mixed-10 |v7 |2{nbsp}555 |0.6 |0.23 |0.00 |0.00 |0.5 |3 |35.6
+|mixed-10 |v9 |2{nbsp}555 |0.7 |0.23 |0.00 |0.01 |0.5 |3 |35.6
+|types-100 |oracle |7{nbsp}387 |6.5 |0.93 |_n/m_ |_n/m_ |5.3 |241 |41.4
+|types-100 |v2 |7{nbsp}387 |3.8 |0.45 |0.01 |0.47 |5.2 |126 |41.4
+|types-100 |v5 |7{nbsp}387 |3.0 |0.28 |0.01 |0.26 |2.2 |18 |41.4
+|types-100 |v7 |7{nbsp}387 |4.6 |0.28 |0.01 |0.28 |2.2 |6 |41.4
+|types-100 |v9 |7{nbsp}387 |3.4 |0.27 |0.01 |0.27 |2.1 |6 |41.4
+|deep-types-100 |oracle |10{nbsp}997 |279.3 |9.77 |_n/m_ |_n/m_ |11.9 |10087 |42.3
+|deep-types-100 |v2 |10{nbsp}997 |6.3 |7.82 |0.15 |37.12 |11.5 |231 |42.3
+|deep-types-100 |v5 |10{nbsp}997 |12.4 |4.32 |0.14 |25.66 |6.0 |66 |42.3
+|deep-types-100 |v7 |10{nbsp}997 |14.4 |4.28 |0.12 |25.90 |6.0 |12 |42.3
+|deep-types-100 |v9 |10{nbsp}997 |14.9 |4.04 |0.14 |26.32 |5.8 |13 |42.3
+|relations-100 |oracle |5{nbsp}671 |12.6 |376.10 |_n/m_ |_n/m_ |1.9 |414 |78.6
+|relations-100 |v2 |5{nbsp}671 |3.2 |44.44 |2.17 |2.73 |1.8 |114 |78.6
+|relations-100 |v5 |5{nbsp}671 |6.0 |14.23 |1.33 |1.77 |1.3 |148 |78.6
+|relations-100 |v7 |5{nbsp}671 |6.8 |14.70 |1.37 |1.77 |1.3 |146 |78.6
+|relations-100 |v9 |5{nbsp}671 |6.1 |32.89 |1.14 |1.55 |1.2 |148 |78.6
+|parts-100 |oracle |97{nbsp}511 |60.4 |2.77 |_n/m_ |_n/m_ |52.6 |1581 |40.7
+|parts-100 |v2 |97{nbsp}511 |53.9 |2.14 |0.02 |0.22 |52.6 |1586 |40.7
+|parts-100 |v5 |97{nbsp}511 |11.8 |1.06 |0.01 |0.15 |15.5 |75 |40.7
+|parts-100 |v7 |97{nbsp}511 |15.8 |1.06 |0.01 |0.14 |15.5 |39 |40.7
+|parts-100 |v9 |97{nbsp}511 |16.8 |1.17 |0.01 |0.18 |13.3 |45 |40.7
+|identity-100 |oracle |11{nbsp}953 |4.8 |1.06 |_n/m_ |_n/m_ |5.7 |145 |38.4
+|identity-100 |v2 |11{nbsp}953 |4.7 |0.43 |0.00 |0.62 |5.8 |135 |38.4
+|identity-100 |v5 |11{nbsp}953 |2.5 |0.37 |0.00 |0.59 |3.0 |72 |38.4
+|identity-100 |v7 |11{nbsp}953 |2.1 |0.36 |0.00 |0.55 |3.0 |12 |38.4
+|identity-100 |v9 |11{nbsp}953 |3.5 |0.37 |0.00 |0.53 |2.7 |11 |38.4
+|late-identity-100 |oracle |5{nbsp}303 |1.6 |1.64 |_n/m_ |_n/m_ |2.0 |44 |41.6
+|late-identity-100 |v2 |5{nbsp}303 |1.4 |0.69 |0.00 |0.15 |2.0 |46 |41.6
+|late-identity-100 |v5 |5{nbsp}303 |0.8 |0.71 |0.00 |0.14 |0.7 |8 |41.6
+|late-identity-100 |v7 |5{nbsp}303 |0.8 |0.73 |0.00 |0.16 |0.7 |3 |41.6
+|late-identity-100 |v9 |5{nbsp}303 |0.8 |0.82 |0.01 |0.16 |0.6 |3 |41.6
+|mixed-100 |oracle |25{nbsp}873 |17.0 |2.01 |_n/m_ |_n/m_ |14.5 |496 |33.6
+|mixed-100 |v2 |25{nbsp}873 |12.3 |0.64 |0.01 |0.07 |14.4 |379 |33.6
+|mixed-100 |v5 |25{nbsp}873 |5.4 |0.36 |0.01 |0.03 |5.3 |77 |33.6
+|mixed-100 |v7 |25{nbsp}873 |5.8 |0.37 |0.01 |0.03 |5.3 |42 |33.6
+|mixed-100 |v9 |25{nbsp}873 |7.2 |0.48 |0.01 |0.04 |4.7 |45 |33.6
+|adir |oracle |214{nbsp}221 |121.3 |2.93 |_n/m_ |_n/m_ |34.8 |1735 |34.0
+|adir |v2 |214{nbsp}221 |96.6 |1.65 |0.07 |2.49 |34.9 |1761 |34.0
+|adir |v5 |214{nbsp}221 |37.7 |2.46 |0.06 |3.11 |14.1 |591 |34.0
+|adir |v7 |214{nbsp}221 |37.0 |3.24 |0.08 |3.21 |14.1 |205 |34.0
+|adir |v9 |214{nbsp}221 |51.3 |3.15 |0.10 |3.15 |8.9 |201 |34.0
+|backstart-conf |oracle |37{nbsp}268 |16.3 |2.35 |_n/m_ |_n/m_ |8.7 |403 |34.7
+|backstart-conf |v2 |37{nbsp}268 |15.3 |1.06 |0.02 |0.43 |8.7 |329 |34.7
+|backstart-conf |v5 |37{nbsp}268 |6.2 |1.34 |0.02 |0.40 |3.3 |121 |34.7
+|backstart-conf |v7 |37{nbsp}268 |6.3 |1.32 |0.02 |0.40 |3.3 |39 |34.7
+|backstart-conf |v9 |37{nbsp}268 |6.3 |1.63 |0.02 |0.43 |2.3 |44 |34.7
+|backstart-app |oracle |140{nbsp}540 |61.5 |2.96 |_n/m_ |_n/m_ |28.3 |1328 |34.3
+|backstart-app |v2 |140{nbsp}540 |62.2 |1.75 |0.09 |2.01 |28.4 |1168 |34.3
+|backstart-app |v5 |140{nbsp}540 |21.9 |2.12 |0.07 |2.23 |11.1 |367 |34.3
+|backstart-app |v7 |140{nbsp}540 |26.3 |2.16 |0.07 |2.16 |11.1 |80 |34.3
+|backstart-app |v9 |140{nbsp}540 |22.5 |2.48 |0.06 |2.28 |7.4 |83 |34.3
+|===
+
+[[consolidated]]
+== Consolidated
+
+V12 is the engine: `CdsEngine`, with `CdsModel` and `CdsIdentity`.
+The oracle stays, as `CdsInferenceEngine` with its model renamed `CdsInferenceModel`, and so does every test: the contract, the corpora, the concurrency tests and the benchmark, which now measures the two against each other.
+
+V1 to V11 are gone from the source.
+They are in the commit before the consolidation, `CDS engines V10 to V12`, and each one's idea, cost and finding is in this log.
+
+[[fixpoint]]
+== The Fixpoint, and What It Changed
+
+The oracle was written to be read against the spec, but it was still clever: it normalised names, stored each fact once, and worked out at question time what the rules would derive.
+Cleverness can be wrong in ways no test of it can see.
+So beneath it now: `CdsFixpointOracle`, the rules applied literally -- every rule, to every triple, stated or derived, until nothing new follows, everything stored.
+Slow and large (a scale-2 corpus closes to 10 000–170 000 triples), and obviously right.
+`CdsFixpointTest` compares both engines with it on every synthetic corpus at scale 2: the yes/no and vocabulary probes, and whether each name is a type and a relation.
+
+[[fixpoint-findings]]
+=== What It Found
+
+Chains stopped at stated triples::
+r01 applies to every triple, derived ones included; both engines chained only over stated ones.
+A transitive relation above `has type` -- the new corpus `derived-chains` has one, and one above `has tag` -- chains through the types type inheritance derives.
+Both engines now walk derivable steps where such a relation lies under the asked one, and keep the index everywhere else.
+
+Aliases were identity::
+The spec's r06–r08 move what is said about an alias to what it aliases, one way; both engines merged the two names.
+Decided: one way, as the spec says (see xref:cds-inf.adoc#req-decisions[the decided readings]).
+Aliases left the union-find, and became edges used at the meta level, between relations, and at question time.
+
+`x same as x`::
+Read literally, the rules derive it for every member of a same-as class and for every relation with an inverse (r12) -- and, kept as a statement about an alias, r06 hands it on: `A is alias of T` and `A same as A` make `T same as A`, and every alias the same as what it aliases.
+Decided: a tautology, answered for every name, and no premise.
+The fixpoint's sanity test caught this before either engine did: from `A is alias of T` it derived `A same as T`.
+
+Cycles::
+A chain that comes back makes `x p x` (r01 on `x p y`, `y p x`); both engines' searches refused to return to where they started.
+
+Two oracle bugs, after the rework::
+The oracle typed things with what an alias of their type aliases before it had built the alias edges it needed, so it saw none -- found by `CdsEngine` disagreeing with it on `relations-10`, with the fixpoint on the engine's side.
+And an append bug in `CdsEngine`: an alias of a name an earlier identity statement used must hand that statement on (`a same as b`, `b is alias of c` ⇒ `a same as c`), which appending did not; found by the growing-store test on `identity-10`.
+
+The fixpoint's own conventions::
+Its rule "a relation nothing places lies under `related`" also fired for `^related`, which, `related` being symmetric, is `related` -- and rewriting turned `related has subtype ^related` into `related has subtype related`.
+
+The hierarchy as triples, found by asking all of it::
+The probes are a sample, and the sample never asked a `has subtype` question between two relations on the `is linked from` side.
+r17 places the inverse of every sub-relation there, and both engines kept those edges only in the compiled hierarchy: `isSubRelation` said yes, `holds` said no -- not even `has tag has subtype has type`, which the vocabulary alone entails.
+Found by DL023, the lint rule for a relation on both sides, whose `why` came back empty.
+`CdsFixpointTest` now asks every hierarchy question between every pair of relations and types, on every corpus; the engines walk the hierarchy's `has subtype` steps, one step without chains.
+The same exhaustive questions turned up a convention read too literally: the fixpoint made an alias of a relation the same as it, by handing the convention's `a has inverse ^a` on through the alias (also in its backwards spelling, `^a ^has inverse a`). Decided: one way, as for every alias (see xref:cds-inf.adoc#req-decisions[the decided readings]).
+No measurable cost: the corpus contracts took as long as before.
+
+[[dense-aliases]]
+=== Dense Aliases
+
+One-way aliases have a consequence the rules spell out: a name with two alias targets hands each target's alias statement to the other, so the two targets become aliases of each other, and exchange everything said about them.
+Applied to every alias variant of every meta statement, a dense alias graph is expensive:
+
+* `relations-20`, whose random data triples included relations under `is alias of`, compiled in 11 s instead of 48 ms: 2.7 million alias edges, nearly all the same few thousand pairs said again from another statement.
+Fixed by keeping one edge per pair of names, skipping object variants of alias statements (r08 there only writes out the chains the alias walk follows anyway), and caching each name's variants for a fixpoint round.
+The corpus no longer states random triples with alias relations: no real graph has a dense random alias graph.
+* The real graphs had one, though not by design.
+adir's vocabulary put `label` under `has alias`, so every label was an alias: 41 files called `main.yml` in backstart-conf, every `README.adoc` and `Dockerfile` -- 1 094 shared labels on adir, 525 on backstart-app.
+Under the spec's rules they exchanged everything said about them; under the engines' old reading of aliases they had been merged into one concept each.
+Decided: `label` is a value, under `has property`, as ddot.it's spec has it.
+adir's UI still shows it with the other names (its `Axis` says so explicitly now).
+
+[[fixpoint-numbers]]
+=== Where That Leaves the Real Graphs
+
+[cols="2,>1,>1,>1,>1,>1",options="header"]
+|===
+|Graph |Facts |Compile ms |holds µs |Heap MB |Grow ms
+
+|adir |273{nbsp}664 |97 |1.93 |12.3 |830
+|backstart-app |141{nbsp}001 |32 |1.81 |6.6 |111
+|backstart-conf |37{nbsp}262 |10 |0.63 |2.0 |71
+|===
+
+adir's graph has grown by a quarter since the milestone run, so its numbers do not compare directly; backstart-conf's do: compile 6 → 10 ms, `holds` 1.0 → 0.6 µs.
+Between the alias rework and the `label` decision, backstart-conf had compiled in 344 ms, and adir grown in 10 s.
+
+Growing still compiles anew in 27 of adir's 50 batches -- 13 times for an alias given a second target -- and 6 of backstart-app's.
+
+[[never-again]]
+== Never Built Anew
+
+Until here a model had two ways of coming about: compiled from all facts, or appended to -- for facts that left what compiling settled intact, or that one of a dozen special cases could patch in place.
+Anything else compiled anew: 27 of adir's 50 batches.
+Now there is one way.
+A model starts empty and grows: the first batch is the axioms and the store's facts, each later one what the store gained since.
+Building it at once is growing it by one batch.
+
+[[never-again-how]]
+=== How a Batch Is Read
+
+Register::
+Each fact gets its index and waits, unstored -- the buffer -- since how a fact is stored depends on the meta level, which the batch may change.
+A map from each predicate as written to its facts' indexes lets anything re-read the facts of one predicate later.
+
+Settle::
+The meta fixpoint, as a worklist.
+The first round applies the batch's meta statements; a round that changed anything rebuilds the hierarchy and collects the next round's work:
+the facts of every predicate whose meta kinds grew (a data predicate placed under `has subtype` turns its old triples into subtype statements);
+the meta statements about every name that gained an alias target (by the name's node for stored facts; the batch's again);
+and the typings of every type that now lies under `relation` (a type placed under `transitive relation` makes what was typed with it transitive).
+The sets only grow, so it ends.
+A batch of data -- the usual case -- does one round, finds nothing changed, and skips the rest.
+
+Repair::
+What the meta level changed, mended in place.
+`CdsIdentity` now logs the classes it joined and the ones that became their own inverse; the triples of a joined class move to the node it now is, read in the direction it now is, and a class that became symmetric folds its backwards node into its forwards one.
+A predicate whose triples are now stored differently -- another relation, the other way round, or either way -- has its old triples normalised again, in place.
+What is a type is worked out afresh.
+
+Store::
+The waiting facts are normalised and listed at both ends.
+A node's list keeps a sorted prefix and an unsorted tail, and is sorted again once the tail outgrows a quarter of the prefix: a few sorts per list, however the store grows.
+
+All the special cases of appending went: `typing`, `aliasing`, `joining`, `merging`, `placing`, `fresh`, `canTakeRelation`, and their blockers.
+A removal still builds anew: identity is a union-find, which cannot split.
+
+[[never-again-tests]]
+=== Holding It to Building at Once
+
+`CdsGrowthTest` grows every synthetic corpus at scales 1 and 2 -- in the store's order, backwards (the meta statements after the data they govern), and shuffled -- in batches of mostly one to four facts, now and then a fifth of them, and compares every probe with a model built at once; and it asserts the model was built once.
+
+Eight mutations, each taking out one part of the repair, checked that the tests see it.
+The growth test caught three; five survived it, since the corpora never make a predicate meta after its data, or a type a kind of relation after its typings.
+A new contract test, `aLaterFactChangesWhatAnEarlierOneMeans`, does each of those once; together the two catch all eight.
+
+[[never-again-numbers]]
+=== Measured
+
+The first version built adir in 141 ms where the compiler had taken 104 -- the same graph, measured side by side.
+Its meta fixpoint applied all 110 000 meta statements in every one of four rounds, and nine in ten are typings of files and classes, which change the meta level only when the type lies under `relation`.
+Applying a typing only then, and deciding that by predicate, with one answer per type name, took the fixpoint from 75 to 40 ms.
+
+[cols="2,>1,>1,>1,>1,>1,>1",options="header"]
+|===
+|Graph |Facts |Build ms, before |Build ms, now |Grow ms, before |Grow ms, now |Heap MB, before → now
+
+|adir |280{nbsp}655 |104 |95 |841 |243 |12.9 → 14.6
+|backstart-app |141{nbsp}001 |33 |36 |118 |89 |6.6 → 7.4
+|backstart-conf |37{nbsp}262 |9 |10 |75 |30 |2.0 → 2.3
+|===
+
+"Grow" is the benchmark's 50 batches with a question after each; it built anew 27, 6 and 3 times before, and once now, on every corpus.
+The heap grew by the map from predicates to their facts, one `int` a fact: the price of re-reading a predicate's facts when its meaning changes.
+`holds`, patterns and queries are unchanged, within noise.
+
+[[research-3-7]]
+== Research: `relations-100`, and Join Order
+
+[[research-relations-100]]
+=== `relations-100`
+
+The 16 µs per `holds` came from the corpus, not the engine: the commit before the fixpoint, on the old corpus, took 21 µs, and on the new one 0.5 µs.
+The old corpus stated random triples with sub-relations of `is alias of`, which the engines then read as identity, merging hundreds of its 1 000 nodes into a few large classes; a profile put 90 % of `holds` in the loop over the triples between two such hubs.
+On the new corpus `relations-100` costs what the others do.
+
+What a `holds` there costs now, 0.24 µs on average, was half spent working out which transitive relations lie under the one asked -- for `related`, every one of about 90, with a new `BitSet` each time.
+That is now remembered per relation, with which of them can step along derived triples: the mean per probe fell from 0.24 to 0.14 µs, a `related` from 1.5 to 0.7 µs.
+What else the profile showed, not done: remembering each node's chain steps (9–15 %), a flag for the nodes no alias touches (6–10 %), and name lookups (about 30 %, which only an API taking ids would remove).
+
+[[research-joins]]
+=== Join Order
+
+The query layer joins the pattern with the most bound positions first, whatever their answers number.
+A prototype, kept uncommitted beside this branch, orders by estimates instead:
+
+* `CdsReasoner.estimate(s, p, o)`: stated triples at the bound node, over its aliases, under `p`; a type's ancestors for `has type`; the extent of every type below for `has instance`; the reach index's size for a transitive relation over stated steps; 1 for both ends bound.
+Inverses and symmetric relations cost nothing extra, a triple being stored once and read from either end; inheritance is what makes stored counts wrong, which is why type extents count.
+* A greedy, adaptive planner: at each step it estimates every pattern with a bound end on up to eight of the current solutions, scaled up, and takes the smallest.
+A property path cannot be estimated, so it is evaluated -- once, kept as a table that later patterns probe by hash.
+* `match` with both ends bound lists from whichever end has less around it: testing `x links to <hub>` went from 146 to 8 µs.
+
+[cols="4,>1,>1",options="header"]
+|===
+|Query |Now ms |Prototype ms
+
+|`?x type animal` (20 000) . `?x tag rare` (10) |27.8 |0.02
+|`?x links x0` (a hub) . `?x links ?y` . `?y tag rare` |402 |7.6
+|`?a type mammal` . `?a links ?b` . `?b type bird3` |64 |6.3
+|adir: `?c type Java type` . `pkg contains ?c` . `?c uses String` |13.8 |1.3
+|adir: `?f type file` . `dir contains ?f` . `?f comodified ?g` |18.0 |0.6
+|backstart-app, the same |11.5 |0.4
+|adir: `?x related String` . `?x in pkg` |2.2 |3.7
+|===
+
+Answers are the same on 1 000 query probes over every corpus; a `LIMIT` may keep another subset, as before.
+The loss: a pattern with both ends bound counts as one answer, however much a test costs -- 35 `related` tests at 100 µs each where the old order listed the hub once -- and tiny queries pay for estimating (0.02 → 0.06–0.26 ms on backstart-conf).
+
+What the literature says, as it applies: SPARQL engines rank by bound positions and per-predicate counts (Jena, RDF4J), or plan by dynamic programming over predicate and characteristic-set statistics (RDF-3X), or sample the index (Virtuoso) -- and sampling suits an engine whose counts inference makes wrong.
+Worst-case-optimal joins (Leapfrog Triejoin) need sorted tries per variable order, and the answers here come from inference walks; they do not fit.
+Dynamic programming needs fan-out estimates for bindings that do not exist yet; worth it only for queries of four or more patterns.
+
+Recommended: keep the prototype's planner, the paths evaluated once, and the smaller end for `match` -- 6 to 1 000 times faster where the order matters, neutral on the benchmark's queries -- after pricing a both-ends test by what it costs, and without its switches.
+
+[[joins-merged]]
+=== Join Order, Merged
+
+The planner went into `CdsQueryEngine` as the prototype had it, without its switches.
+Its loss went another way than pricing a test by its cost:
+
+A test is what `holds` answers::
+With both ends bound, `match` listed every object of the subject to look for the object; the prototype listed from the smaller end instead.
+Both ends bound is the question `holds` answers, without listing anything, so `match` now asks it.
+That made a test cheap -- except against a hub.
+
+A hub's triples, grouped by relation::
+A failed `related` test against a hub still took 47 µs: each rule that could conclude it -- a type, a tag, a part -- took a step of its relation from the hub, and a step read every triple at the hub to find the few of that relation.
+A node with 64 triples or more now has them grouped by the relation that leaves it, made on first use, dropped when the node gains a triple or the meta level changes; a step reads only the groups under its relation.
+The test fell to a few µs -- and `holds` on adir from 1.76 to 0.92 µs, the benchmark's queries from 1.08 to 0.42 ms.
+
+`CdsJoinTest` holds the planner to a reference that cannot depend on order -- every pattern evaluated alone, the solutions joined by what they share -- and to the oracle; a corpus `joins` made for it is among the synthetic ones, so every contract asks its queries too.
+Two mutations -- a table that loses its rows, a join that ignores its key -- fail 22 and 23 tests.
+`CdsJoinBench` (`-Dcds.joins`) times the queries; the commit before, side by side:
+
+[cols="4,>1,>1",options="header"]
+|===
+|Query |Before ms |Now ms
+
+|joins: big type, rare tag |22.3 |0.21
+|joins: hub, link, rare |388 |0.48
+|joins: related hub, small type |3.0 |2.2
+|joins: mammals linking birds |59.9 |5.1
+|adir R1: typed, in a package, uses the hub |6.1 |0.11
+|adir R2: shared dependencies in a package |9.2 |0.40
+|adir R3: related to the hub, in a package |2.5 |0.23
+|adir R4: files in a directory, co-modified |17.0 |0.16
+|backstart-app R4, the same |10.7 |0.27
+|backstart-conf R3 |0.04 |0.14
+|===
+
+The last row is what is left of the loss: a query of a tenth of a millisecond pays for estimating.
+[[next]]
+== Next
+
+`LIMIT`::
+Only the last join stops early; depth-first evaluation under a `LIMIT` would let every level stop.
+
+Removal::
+Still builds anew, as identity cannot split.
+Removing a fact whose relation is no meta relation, the usual case when a file changes, could take it out of the lists at its ends and nothing else.
+
+Dense alias graphs::
+Treat a set of names that alias each other as one unit in the meta fixpoint, instead of applying every meta statement to every variant.
+
+Memory::
+About 45 bytes a fact on adir.
+What is left: the name-to-id map (a `HashMap<String, Integer>`), and the stored facts' own provenance, which the store holds anyway.

@@ -1,0 +1,67 @@
+= Package `it.ddot.core.lint`
+:icons: font
+// ddot.it/off
+
+Linting, canonical formatting and project-wide analysis of ddot.it.
+Specified in `linting.adoc` at the repository root.
+
+The package has two layers:
+
+. `DdotLinter` -- the engine behind `ddot lint` / `ddot fmt` for *one plain `.ddot` text*.
+. `DdotAnalysis` -- the warnings a *project* gets, wherever they are shown. The IntelliJ plugin marks them in the editor,
+  `ddot lint` prints them; both get them from here, so they agree.
+
+[[linter]]
+== Linter / formatter
+
+`DdotLinter.lint(lines)` returns the canonical text plus diagnostics.
+
+* *FIX* rules DL001–DL009 re-spell every recognized triple/command line to its one canonical form
+  (`S ..p.. O`, `S .... O`, `,, ..k.. v`), reusing `io.DdotWriter`, and splice it back.
+* *Report-only* pitfalls DL010–DL012: lines that look like triples but are silently dropped.
+
+.Hard invariants (see the unit tests)
+* Meaning-preserving: `parse(lint(x)) == parse(x)`.
+* Idempotent: `lint(lint(x)) == lint(x)`.
+* Prose-safe: non-ddot lines are left byte-for-byte.
+* Never touches an object or a `!!block` / `!!verbatim` interior.
+
+.Linter types
+DdotLinter:: The engine.
+LintResult:: `canonicalLines`, the `changes` and all `diagnostics`.
+LineChange:: One reformatted line: original, canonical, primary FIX rule. Feeds `--explain` and `--fix`.
+Diagnostic:: One finding on one line of a plain `.ddot` text: rule id, severity, line, message.
+Severity:: `FIX` (auto-formattable), `WARN` (ambiguous intent, report-only), `ERROR` (almost certainly a mistake).
+
+[[analysis]]
+== Project analysis
+
+`DdotAnalysis.of(triplesByFile)` takes the `embed.LocatedTriple`s of every file (the plugin has them in its index already)
+and answers project-wide findings; `DdotAnalysis.fileFindings(...)` runs the file-local checks.
+
+[cols="1,1,3"]
+|===
+| Rule | Scope | What
+
+| DL010–DL012 | file | `DdotLinter`'s report-only diagnostics
+| DL017 | file | incomplete triple: a triple line with no object (`s ..p..`)
+| DL020 | project | a cardinality bound violated
+| DL021 | project | a cardinality that is no whole number
+| DL022 | project | a name also spelled in another letter case
+| DL023 | project | a relation under both `links to` and `is linked from`
+| DL024 | project | a name the project says is replaced by another
+|===
+
+.Analysis types
+DdotAnalysis:: Entry point and rule ids.
+Finding:: One problem: rule, severity, file URL, host-file line and columns, message and `related` locations (the bound a value
+breaks, the other spelling of a name, ...). Unlike a `Diagnostic`, it points into the *host* file (Markdown, AsciiDoc).
+Location:: A file URL and a 1-based line.
+FileChecks:: DL017 on the token stream plus the linter's DL010–DL012, run per embedded chunk and mapped to host lines.
+Cardinality:: DL020/DL021. Bounds stated on the relation (`..cardinality..`, `..min cardinality..`, `..max cardinality..`,
+`..has type.. required`, `..has type.. single valued`) or as metadata of its `range`; applied to every instance of its `domain`.
+CaseVariants:: DL022. Alias statements (`has alias`, `is alias of`) name a case variant on purpose and are exempt.
+RelationSides:: DL023. Every inverse pair splits across `links to` / `is linked from`; a relation placed on both sides has no
+direction, which almost certainly means one placing statement is the wrong way round. Uses the link:../cds/README.adoc[`cds`] reasoner.
+Replacements:: DL024. `aaa ..is replaced by.. bbb` (or `bbb ..replaces.. aaa`) tells an editor to substitute `bbb` for `aaa`; it does not make them one thing, so every use of `aaa` is marked with its replacement.
+Chains are followed to their end; statements that declare names (`is replaced by`, `replaces`, `is alias of`, `has alias`, `same as`) are exempt. Uses the link:../cds/README.adoc[`cds`] reasoner.

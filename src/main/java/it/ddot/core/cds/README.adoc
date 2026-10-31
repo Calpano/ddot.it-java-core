@@ -1,0 +1,78 @@
+= Package `it.ddot.core.cds`
+:icons: font
+// ddot.it/off
+
+Reasoning over ddot.it triples under the *CDS* vocabulary and rules r01–r18 of
+link:https://ddot.it/spec/ddot-it-cds.html[CDS & Standards Alignment], plus the ddot.it additions
+(`replaces` is transitive, a `has subtype` cycle is one concept, typing and subtyping create types).
+
+The design is described in link:../../../../../../../doc/cds-inf.adoc[cds-inf.adoc];
+how the fast engine came about and what it costs is in link:../../../../../../../doc/cds-inf-perf.adoc[cds-inf-perf.adoc].
+
+A store holds only what was *stated*.
+Everything the rules derive is worked out by a reasoner -- so `a has subtype b` answers `a related b` without a
+`related` fact ever existing.
+
+[[reasoners]]
+== Reasoners
+
+All three implement `CdsReasoner` and must give the same answers; only `why` (the derivation) may differ.
+
+[cols="1,3"]
+|===
+| Class | Role
+
+| `CdsInferenceEngine`
+| The *reference* implementation and test oracle. Written to be read against the spec, not to be fast.
+Its compiled state is `CdsInferenceModel`.
+
+| `CdsEngine`
+| The *fast* implementation. Its incrementally grown state is `CdsModel`: when the store only grows, the model grows
+by the new facts; when a fact is removed, it is rebuilt.
+
+| `CdsFixpointOracle`
+| The oracle for the oracle: every rule applied literally to every triple until nothing new follows.
+Slow and memory-hungry -- for small graphs in tests only.
+|===
+
+The tests (`CdsReasonerContract`) compare the implementations question by question.
+
+[[contents]]
+== Contents
+
+.Vocabulary and configuration
+Cds:: The CDS vocabulary in its ddot.it names (never the CDS ids or labels, which read in different directions), and its axioms.
+RuleSet:: The spec's predefined rule configurations: `ALL`, `ALL_EXCEPT_TRANSITIVE`, `ONLY_TRANSITIVE`, `NONE`.
+
+.Reasoning
+CdsReasoner:: The interface every engine answers: "is there an `x p y`?", pattern matching, estimates, canonical names, `why`.
+CdsInferenceEngine, CdsInferenceModel:: Reference engine and its compiled two-phase model (meta fixpoint, then data pass with ancestor bitsets).
+CdsEngine, CdsModel:: Fast, incremental engine and its model.
+CdsFixpointOracle:: Naive worklist fixpoint, the literal reading of the rules.
+Identity, CdsIdentity:: Union-find with parity: which names are one concept (`same as`, parity 0) and which relations are
+one relation read backwards (`has inverse`, `^p`, parity 1). A class holding a name at both parities is symmetric (r10).
+Both keep the joins with their causes so `explain` can say why two names are one; `CdsIdentity` is the thread-safe variant used by `CdsModel`.
+
+.Querying
+CdsQuery:: Triple patterns with `?variables`, property paths (`inv`, `seq`, `alt`, `plus`, `star`) and a CONSTRUCT template --
+the expressiveness of SPARQL CONSTRUCT, without its syntax. Every match is an _entailed_ one.
+CdsQueryEngine:: Evaluates a `CdsQuery` over any `CdsReasoner`, joining patterns one at a time in the order the
+reasoner's `estimate` says yields the fewest solutions; paths are evaluated from whichever end is bound.
+
+.Facts and stores
+Triple:: One bare statement: subject, relation, object. A relation written `^p` reads backwards.
+SourcedFact:: A statement plus where it was read (file, line range, reader). The same statement read twice is two facts, so `why` can name every place.
+MemoryFactStore:: The plain in-memory store: a set of facts indexed by subject and object, nothing worked out.
+MemoryTripleStore:: A `MemoryFactStore` of bare `Triple`s.
+
+It runs over the store interfaces in link:../store/README.adoc[`store`].
+
+[[example]]
+== Example
+
+[source,java]
+----
+CdsQuery q = where(t("?x", HAS_TYPE, "?t"),
+                   t("?x", seq(rel(HAS_PART), rel(HAS_TAG)), "?tag"))
+        .construct(tpl("?x", "has part tagged", "?tag"));
+----

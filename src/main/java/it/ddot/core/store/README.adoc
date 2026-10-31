@@ -1,0 +1,17 @@
+= Package `it.ddot.core.store`
+:icons: font
+// ddot.it/off
+
+The minimal interfaces a fact store must offer so that a CDS reasoner (see link:../cds/README.adoc[`cds`]) can run over it.
+They are what the `KnowledgeGraph` and `MemoryTripleStore` have in common.
+
+.Contents
+TripleStore:: A set of facts that can be added to, removed from and searched, with a `revision` that moves on every change
+(reasoners use it to know when to update). A store may normalise what it is given -- `KnowledgeGraph` folds aliases --
+so a fact read back need not equal the fact put in. `derivationsOf` says why a fact nobody wrote holds.
+IFact:: One statement and its provenance. Two facts with the same triple from two files are two facts.
+An axiom or derived fact has no file.
+IDerivation:: Why a store holds a fact nobody wrote: the rule applied and the facts it was applied to.
+Following the chain always ends at something somebody wrote.
+ILineRange:: The 1-based, inclusive lines a fact was read from. An interface rather than a record so a store can keep
+the range type it already has (adir's `Doc.Range` implements it).
