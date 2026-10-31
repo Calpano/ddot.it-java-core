@@ -2,13 +2,15 @@
 :icons: font
 // ddot.it/off
 
-The `ISourceHandler` implementations that connect host readers to triple events, and triple events to a knowledge graph.
+The `ISourceHandler` implementations that connect host readers to triple events.
 
 .Data flow
 ----
-host reader --lines--> Source2TripleEvents --IDdotEvent--> TripleEvent2Kgraph --> Kgraph
-                       \______________ Source2Kgraph _______________/
+host reader --lines--> StructuredSource2TripleEvents --IDdotEvent--> your ISourceHandler
 ----
+
+The handlers that put those events into a `Kgraph` (`TripleEvent2Kgraph`, `Source2Kgraph`, `IKgraphSourceHandler`) live in
+`it.ddot.core.kbase.io`, in the separate artifact `ddotit-kbase`.
 
 .Contents
 Source2TripleEvents:: Turns a stream of source lines into triple events. An adapter over `io.DdotParser` that owns no grammar.
@@ -17,9 +19,3 @@ triple that opened it. The buffer is flushed at every point where no construct c
 `resetSubject()` (a structural boundary) and `emitTriple`. Memory is bounded by the largest chunk between two boundaries.
 StructuredSource2TripleEvents:: For readers with structural blocks (sections, comments, fenced blocks): `blockEnd()` resets
 the subject so continuation does not cross block boundaries.
-TripleEvent2Kgraph:: Adds each `IDdotEvent` to a `Kgraph` as a subject -> predicate -> object edge. Node id == text, so
-pattern queries hit the SPO index; labels may collide. Source location is recorded on the edge, and the triple's metadata
-is stored flat in the edge's `data` JSON, readable via `Kedge.meta()`.
-IKgraphSourceHandler:: An `ISourceHandler` that also exposes its `Kgraph`, so a reader can add data beyond triples
-(labels, types, inline HTML from the AsciiDoc reader). Split out of `ISourceHandler` to keep that interface graph-free.
-Source2Kgraph:: Convenience `IKgraphSourceHandler` chaining `Source2TripleEvents` and `TripleEvent2Kgraph` into one `Kgraph`.

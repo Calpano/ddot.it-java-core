@@ -9,7 +9,7 @@ import org.jspecify.annotations.Nullable;
  *
  * <p>Deliberately knowledge-graph-free, so that the ddot.it grammar and every reader can live in
  * {@code ddot-core} (which must not depend on graphinout). Handlers that additionally expose a
- * {@code Kgraph} implement {@code it.ddot.core.source.handler.IKgraphSourceHandler}.
+ * {@code Kgraph} implement {@code it.ddot.core.kbase.io.IKgraphSourceHandler}, in the {@code ddotit-kbase} artifact.
  */
 public interface ISourceHandler {
 

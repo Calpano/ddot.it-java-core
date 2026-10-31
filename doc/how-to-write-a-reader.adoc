@@ -17,7 +17,7 @@ file ──lines──▶ XxxParser ──callbacks──▶ XxxReader.Structure
                               StructuredSource2TripleEvents   (ddot.it grammar only)
                                           │  IDdotEvent
                                           ▼
-                                    ISourceHandler   (e.g. Source2Kgraph → Kgraph)
+                                    ISourceHandler   (e.g. Source2Kgraph → Kgraph, in ddotit-kbase)
 ----
 
 The split into two layers is the central rule:

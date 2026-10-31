@@ -21,10 +21,12 @@ DdotVocabulary:: Built-in relation names: `TEXT` (`"text"`, free meta text after
 * link:token/README.adoc[`token`] -- the spec-conformant positional tokenizer; the single source of lexical truth.
 * link:event/README.adoc[`event`] -- the triple-event model (`DdotEvent`, `DdotTriple`, metadata).
 * link:io/README.adoc[`io`] -- parser, writer and JSONL exporter folded over the token stream; reader/handler interfaces.
-* link:io/handler/README.adoc[`io.handler`] -- adapters from line streams to events and from events to a `Kgraph`.
+* link:io/handler/README.adoc[`io.handler`] -- the adapter from line streams to triple events.
 * link:hostreader/README.adoc[`hostreader`] -- readers that pull ddot.it out of Markdown, AsciiDoc, HTML, XML, YAML and `.ddot` files.
 * link:source/README.adoc[`source`] -- where content comes from: sources, resource addresses, snippets, locations.
-* link:kbase/README.adoc[`kbase`] -- the knowledge-base API (graphs, nodes, hyperedges, labels, resources).
+
+The knowledge model (`it.ddot.core.kbase.*`) lives in the separate artifact `it.ddot:ddotit-kbase`
+(link:../../../../../../../ddot.it-java-kbase[`ddot.it-java-kbase`]), so that this one depends on jspecify only.
 
 .Tools built on top
 * link:embed/README.adoc[`embed`] -- which lines of a host file are ddot.it; entity occurrences; located triples.

@@ -1,6 +1,5 @@
 package it.ddot.core.handler;
 
-import it.ddot.core.kbase.inmem.Kgraph;
 import it.ddot.core.DdotVocabulary;
 import it.ddot.core.event.IDdotEvent;
 import it.ddot.core.source.ISnippet;
@@ -185,7 +184,7 @@ class Source2TripleEventsTest {
      * "Commands are not resolved at this layer. `!!this` is emitted as the literal `from` value …
      * substituting `source` for it is the collector's job" (Parse Spec). This holds for the programmatic
      * entry point too, or a reader's events would disagree with every other reader's. The substitution
-     * itself is asserted in TripleEvent2KgraphTest.
+     * itself is asserted in TripleEvent2KgraphTest, in ddotit-kbase.
      */
     @Test
     void emitTriple_leavesDdotItThisToTheCollector() {
@@ -359,7 +358,6 @@ class Source2TripleEventsTest {
     @BeforeEach
     void setUp() {
         collected = new ArrayList<>();
-        Kgraph kgraph = new Kgraph("test");
         ISourceHandler sink = new ISourceHandler() {
             @Override
             public void activeSubject(String s) {}

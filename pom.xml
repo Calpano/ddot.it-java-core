@@ -6,7 +6,7 @@
 
     <!--
       Standalone on purpose: NO <parent>. A parent POM can contribute <dependencies> to this module, which
-      would silently defeat the zero-dependency guarantee this artifact is built around. Everything this
+      would silently defeat the zero-dependency guarantee this artifact is built around (enforced below). Everything this
       module needs is declared here.
     -->
     <groupId>it.ddot</groupId>
@@ -29,11 +29,16 @@
         <junit.version>5.14.3</junit.version>
         <truth.version>1.4.5</truth.version>
         <jspecify.version>1.0.0</jspecify.version>
+        <jackson.version>3.2.3</jackson.version>
     </properties>
 
     <dependencies>
-<dependency><groupId>org.jspecify</groupId><artifactId>jspecify</artifactId><version>${jspecify.version}</version></dependency>
-<dependency><groupId>com.graphinout</groupId><artifactId>base-api</artifactId><version>0.2.2-SNAPSHOT</version></dependency>
+        <!-- The only dependency a consumer gets: annotations, no code. Enforced below. -->
+        <dependency>
+            <groupId>org.jspecify</groupId>
+            <artifactId>jspecify</artifactId>
+            <version>${jspecify.version}</version>
+        </dependency>
 
         <!-- Testing (test scope only; never on a consumer's classpath) -->
         <dependency>
@@ -54,6 +59,13 @@
                     <artifactId>asm</artifactId>
                 </exclusion>
             </exclusions>
+        </dependency>
+        <!-- DdotCorpusConformanceTest builds the corpus' JSON for comparison -->
+        <dependency>
+            <groupId>tools.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+            <version>${jackson.version}</version>
+            <scope>test</scope>
         </dependency>
     </dependencies>
 
@@ -84,31 +96,22 @@
             </plugin>
 
             <!--
-              Guards the BUILD CYCLE, which is the invariant that actually has teeth.
+              Guards the invariant this artifact is built around: a consumer gets ddot-core and jspecify
+              (annotations only), nothing else.
 
-              This used to enforce "ddot-core depends on jspecify and nothing else". That claim died
-              when the Kbase/Kgraph model moved in from ddotit-javalib: it is built on graphinout's
-              JSON document types, so ddot-core now has a compile dependency on com.graphinout:base-api
-              and, transitively, the foundation-* modules, jackson and slf4j. A rule asserting the old
-              invariant could only fail, so it is gone rather than skipped — a permanently-skipped
-              rule teaches everyone to pass -Denforcer.skip and hides the one below with it.
+              It was given up once, when the Kbase/Kgraph model moved in from ddotit-javalib: that model is
+              built on graphinout's JSON document types and pulled base-api, the foundation-* modules,
+              jackson and slf4j onto every consumer's classpath. The model now lives in its own artifact,
+              it.ddot:ddotit-kbase (repository ddot.it-java-kbase), which depends on this one, and the rule
+              is back.
 
-              What must still hold is acyclicity. graphinout's reader-ddot depends on ddot-core, so
-              ddot-core may only depend on graphinout modules that sit BELOW reader-ddot in the stack:
+              It also keeps the graphinout build cycle closed for good: graphinout's reader-ddot depends on
+              ddot-core, so ddot-core must not depend on any graphinout module. ddotit-kbase carries the
+              finer rule for that (only base-api and foundation-* may be used there).
 
-                  base-api, foundation-*   ->  ddot-core  ->  base  ->  reader-ddot
-
-              base-api and the foundation-* modules do not depend on ddot-core, so that chain is a DAG
-              and builds in the order shown. Reaching for com.graphinout:base itself — or any reader,
-              the engine, or the cli — closes the loop and makes the two repositories unbuildable from
-              a clean ~/.m2. The rule below is exactly that line: every com.graphinout artifact is
-              banned, and only the below-the-line modules are re-allowed.
-
-              The 5th pattern segment is the scope, so test-scope trees stay untouched: they never
-              reach a consumer's classpath and so cannot form the cycle.
-
-              banTransitiveDependencies is likewise gone — base-api legitimately brings a transitive
-              tree now, so the rule cannot be satisfied.
+              Every compile/runtime/provided/system dependency is banned, transitively, and only jspecify is
+              re-allowed. The 5th pattern segment is the scope, so test-scope trees stay untouched: they
+              never reach a consumer's classpath.
             -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
@@ -116,7 +119,7 @@
                 <version>3.6.3</version>
                 <executions>
                     <execution>
-                        <id>ddot-core-must-not-close-the-graphinout-cycle</id>
+                        <id>ddot-core-depends-on-jspecify-only</id>
                         <phase>validate</phase>
                         <goals>
                             <goal>enforce</goal>
@@ -126,24 +129,18 @@
                                 <bannedDependencies>
                                     <searchTransitive>true</searchTransitive>
                                     <message>
-                                        ddot-core may depend only on graphinout modules that sit BELOW
-                                        reader-ddot: base-api and foundation-*. graphinout's reader-ddot
-                                        depends on ddot-core, so depending on com.graphinout:base (or any
-                                        reader / engine / cli) closes a build cycle and makes both
-                                        repositories unbuildable from a clean ~/.m2.
+                                        ddot-core depends on org.jspecify:jspecify and nothing else. Code that
+                                        needs more (e.g. graphinout's JSON types) belongs in ddotit-kbase or
+                                        another module that depends on ddot-core.
                                     </message>
                                     <excludes>
-                                        <exclude>com.graphinout:*:*:*:compile</exclude>
-                                        <exclude>com.graphinout:*:*:*:runtime</exclude>
-                                        <exclude>com.graphinout:*:*:*:provided</exclude>
-                                        <exclude>com.graphinout:*:*:*:system</exclude>
+                                        <exclude>*:*:*:*:compile</exclude>
+                                        <exclude>*:*:*:*:runtime</exclude>
+                                        <exclude>*:*:*:*:provided</exclude>
+                                        <exclude>*:*:*:*:system</exclude>
                                     </excludes>
                                     <includes>
-                                        <include>com.graphinout:base-api:*:*:compile</include>
-                                        <include>com.graphinout:foundation-pure:*:*:compile</include>
-                                        <include>com.graphinout:foundation-jvm:*:*:compile</include>
-                                        <include>com.graphinout:foundation-shared:*:*:compile</include>
-                                        <include>com.graphinout:foundation-emulation:*:*:compile</include>
+                                        <include>org.jspecify:jspecify:*:*:compile</include>
                                     </includes>
                                 </bannedDependencies>
                             </rules>

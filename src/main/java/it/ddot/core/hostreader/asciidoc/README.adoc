@@ -121,6 +121,10 @@ Put such literal examples inside a `----` source block (or rephrase them) if the
 
 `Adoc2Kg` reads a parsed `AdocDocument` and maps it to one or more KG nodes via an `IHandler` callback (`createNode(nodeId, label, htmlContent, nodeType)`).
 
+`AsciiDocReader` runs it on every file, but only when the `ISourceHandler` it reads to is also an `Adoc2Kg.IHandler`;
+any other handler gets the triple events alone. This keeps the reader free of the knowledge model: `ddotit-kbase`'s
+`IKgraphSourceHandler` (and so `Source2Kgraph`) implements `Adoc2Kg.IHandler` and creates the nodes in its `Kgraph`.
+
 It operates in two modes selected by the document headers:
 
 === Whole-doc mode

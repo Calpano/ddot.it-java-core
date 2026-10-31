@@ -1,7 +1,6 @@
 package it.ddot.core.conformance;
 
 
-import it.ddot.core.kbase.inmem.Kgraph;
 import it.ddot.core.DdotSourceFormats;
 import it.ddot.core.event.IDdotEvent;
 import it.ddot.core.event.IMeta;
@@ -136,7 +135,6 @@ class DdotCorpusConformanceTest {
     /** Feeds one corpus input through the ddot grammar and collects the emitted triple events, in order. */
     private static List<IDdotEvent> parse(String input, ISnippet snippet) {
         List<IDdotEvent> events = new ArrayList<>();
-        Kgraph kgraph = new Kgraph("conformance");
         ISourceHandler sink = new ISourceHandler() {
             @Override
             public void activeSubject(String s) {}

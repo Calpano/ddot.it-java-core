@@ -31,7 +31,6 @@ class event
 class source
 class ioHandler as "io.handler"
 class io
-class kbase
 class hostreader
 class html
 class lint
@@ -59,19 +58,13 @@ embed --u> io
 embed --u> event
 embed --u> source
 cds --u> store
-kbase --u> core
-kbase --u> event
-kbase --u> io
-kbase --u> source
 ioHandler --u> core
 ioHandler --u> event
 ioHandler --u> io
-ioHandler --u> kbase
 ioHandler --u> source
 ioHandler --u> token
 hostreader --u> core
 hostreader --u> io
-hostreader --u> kbase
 hostreader --u> source
 hostreader --u> ioHandler
 
@@ -87,7 +80,6 @@ hostreader --u> ioHandler
 ** html, io, embed
 ** cds
 ** lint
-** kbase
 ** io.handler
 ** hostreader
 
@@ -104,7 +96,6 @@ hostreader --u> ioHandler
 * `it.ddot.core.hostreader` — Readers for parsing different source syntax such as AsciiDoc, Markdown, HTML, XML, and YAML. These readers emit the structure within the document as synthetic ddot.it events _plus_ the explicitly user-written ddot.it syntax.
 * `it.ddot.core.html` — helper code for rendering syntax-highlighted ddot.it syntax as HTML.
 * `it.ddot.core.io` — the main Parser and Writer
-* `it.ddot.core.kbase` — a knowledge model (a tiny queryable, in-memory triplestore)
 * `it.ddot.core.embed` — where a host file's ddot.it is: the ddot blocks of Markdown and AsciiDoc, the triples in them with their host lines, and where each entity name occurs.
 * `it.ddot.core.cds` — the CDS inference engine: the vocabulary and rules of https://ddot.it/spec/ddot-it-cds.html[CDS & Standards Alignment], `CdsEngine`, the reference engines `CdsInferenceEngine` and `CdsFixpointOracle`, and the query layer (`CdsQuery`, `CdsQueryEngine`). It runs over the triple-store interfaces in `it.ddot.core.store`. Design: link:doc/cds-inf.adoc[], history and measurements: link:doc/cds-inf-perf.adoc[].
 * `it.ddot.core.lint` — the linter with its diagnostics, severities and line changes; and `DdotAnalysis`, the warnings a project gets wherever they are shown (see <<warnings>>).
@@ -132,14 +123,28 @@ hostreader --u> ioHandler
 
 The project-wide rules read every file's triples, as `LocatedTriple` lists per file -- the plugin keeps them in its index, `ddot lint` extracts them from the files it crawls.
 
+[[dependencies]]
 == Dependencies
-We try to minimize dependencies but couldn't avoid to at least require the modern Jackson 3.x libs.
+
+A consumer of `it.ddot:ddotit-core` gets one more artifact: `org.jspecify:jspecify`, which is annotations only.
+The Maven Enforcer rule in `pom.xml` fails the build if anything else reaches the compile or runtime classpath.
+Test-scope dependencies (JUnit, Truth, Jackson for the corpus test) never reach a consumer.
+
+The knowledge model -- `Kbase`, `Kgraph`, `Knode`, `Kedge`, and the handlers that turn triple events into a `Kgraph` --
+is built on graphinout's JSON document types, so it lives in its own artifact, `it.ddot:ddotit-kbase`
+(link:../ddot.it-java-kbase[`ddot.it-java-kbase`]), which depends on this one.
+Its packages keep their names (`it.ddot.core.kbase.*`); the Kgraph handlers moved from `it.ddot.core.io.handler`
+to `it.ddot.core.kbase.io`.
+
+The AsciiDoc reader still finds document and section nodes (see `hostreader.asciidoc.Adoc2Kg`), but hands them only to
+a source handler that implements `Adoc2Kg.IHandler`; `ddotit-kbase`'s `IKgraphSourceHandler` does, and creates them in
+its `Kgraph`.
 
 
 == Known Consumers
 * link:{url-graphinout}[graphinout] `reader-ddot` — the reason this artifact stands alone.
-* link:../ddot.it-java[`ddot.it-java`] — the not-yet-released command-line tool.
-* link:../ddot.it-intellij[`ddot.it-intellij`] — the official ddot.it IntelliJ plugin.
+* link:../ddot.it-java[`ddot.it-java`] — the not-yet-released command-line tool. Also uses `ddotit-kbase`.
+* link:../ddot.it-intellij[`ddot.it-intellij`] — the official ddot.it IntelliJ plugin. Also uses `ddotit-kbase`.
 * link:../adir[adir] — runs the CDS engine over its knowledge graph.
 
 [[spec]]

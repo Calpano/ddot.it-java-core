@@ -2,11 +2,7 @@ package it.ddot.core.hostreader.asciidoc;
 
 import it.ddot.core.hostreader.AbstractFileSourceReader;
 import it.ddot.core.hostreader.AbstractTextFileSourceReader;
-import it.ddot.core.kbase.inmem.Knode;
-import it.ddot.core.kbase.IKnowledgeItemResource;
-import it.ddot.core.io.handler.IKgraphSourceHandler;
 import it.ddot.core.io.handler.StructuredSource2TripleEvents;
-import com.graphinout.base.gio.GioFileFormat;
 import it.ddot.core.DdotSourceFormats;
 import it.ddot.core.source.ISnippet;
 import it.ddot.core.io.ISourceHandler;
@@ -20,7 +16,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 
-import static com.graphinout.foundation.pure.functional.Nullables.ifPresentAccept;
 
 /**
  * Reads {@code .adoc} files in two layers:
@@ -115,8 +110,6 @@ public class AsciiDocReader extends AbstractTextFileSourceReader {
      */
     private static final java.util.regex.Pattern LINK_MACRO =
             java.util.regex.Pattern.compile("link:(\\S+?)\\[([^\\]]*)\\]");
-    private static final GioFileFormat FORMAT = new GioFileFormat("adoc", "AsciiDoc", ".adoc");
-
     public AsciiDocReader() {
         super(DdotSourceFormats.ASCIIDOC);
     }
@@ -170,10 +163,6 @@ public class AsciiDocReader extends AbstractTextFileSourceReader {
         return residual.toString();
     }
 
-    public GioFileFormat gioFileFormat() {
-        return FORMAT;
-    }
-
     @Override
     public void readTo(List<String> lines, StructuredSource2TripleEvents ss2te) {
         throw new UnsupportedOperationException();
@@ -188,21 +177,11 @@ public class AsciiDocReader extends AbstractTextFileSourceReader {
         ss2te.sourceResourceStart(snippet);
         File file = toFile(snippet.sourceLocation().sourceResource());
         String docId = repoRelativeDocId(file);
-        // Node labels/types/inline HTML are graph data, not triple events: they need a kgraph-backed handler.
-        IKgraphSourceHandler kgraphHandler = (IKgraphSourceHandler) sourceHandler;
+        // Node labels/types/inline HTML are graph data, not triple events: only a handler that can hold nodes gets them.
+        Adoc2Kg.@Nullable IHandler nodeHandler = sourceHandler instanceof Adoc2Kg.IHandler h ? h : null;
         AbstractFileSourceReader.readLines(file, lines -> {
             AsciiDocParser.parse(lines, new StructureHandler(ss2te, docId));
-            // additionally
-            Adoc2Kg.readToKnowledgeDocument(lines, new Adoc2Kg.IHandler() {
-                @Override
-                public void createNode(String nodeId, @Nullable String label, @Nullable String inlineHtmlContent, @Nullable String nodeType) {
-                    Knode knode = kgraphHandler.kgraph().getOrCreateNodeWithIdAndLabel(nodeId);
-                    ifPresentAccept(label, knode::addLabelWithoutLanguage);
-                    ifPresentAccept(inlineHtmlContent, content -> knode.resource(IKnowledgeItemResource.inlineText_Html(inlineHtmlContent)));
-                    ifPresentAccept(nodeType, typeName -> kgraphHandler.kgraph().addTypeName(knode, typeName));
-                }
-            });
-
+            if (nodeHandler != null) Adoc2Kg.readToKnowledgeDocument(lines, nodeHandler);
         });
         ss2te.sourceResourceEnd();
         ss2te.sourceEnd();

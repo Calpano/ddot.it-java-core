@@ -1,7 +1,6 @@
 package it.ddot.core.lint;
 
 
-import it.ddot.core.kbase.inmem.Kgraph;
 import it.ddot.core.event.IDdotEvent;
 import it.ddot.core.event.IMeta;
 import it.ddot.core.source.ISnippet;
@@ -32,7 +31,6 @@ class DdotLinterTest {
 
     private static List<T> triples(String text) {
         List<IDdotEvent> events = new ArrayList<>();
-        Kgraph kgraph = new Kgraph("t");
         ISourceHandler sink = new ISourceHandler() {
             @Override
             public void activeSubject(String s) {}

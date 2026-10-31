@@ -103,7 +103,7 @@ public class Source2TripleEvents implements ISourceHandler {
         // Order matters: any buffered line text precedes this call in the source.
         flush();
         // Verbatim, exactly like the line-parsing path: resolving `!!this` is the collector's job
-        // (Parse Spec, "Commands are not resolved at this layer"). TripleEvent2Kgraph does it.
+        // (Parse Spec, "Commands are not resolved at this layer"). TripleEvent2Kgraph (ddotit-kbase) does it.
         String from = rawFrom;
         subject = from;
         String relation = (type == null || type.isEmpty()) ? DdotVocabulary.LINKS_TO : type;
