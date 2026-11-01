@@ -29,7 +29,7 @@
         <junit.version>5.14.3</junit.version>
         <truth.version>1.4.5</truth.version>
         <jspecify.version>1.0.0</jspecify.version>
-        <jackson.version>3.2.3</jackson.version>
+        <jackson.version>3.2.4</jackson.version>
     </properties>
 
     <dependencies>
