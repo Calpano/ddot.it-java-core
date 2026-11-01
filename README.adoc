@@ -106,7 +106,7 @@ hostreader --u> ioHandler
 [[warnings]]
 == Warnings
 
-`DdotAnalysis` owns the warnings about ddot.it: the IntelliJ plugin only marks them in the editor, and `ddot lint` (in link:../ddot.it-java[`ddot.it-java`]) only prints them, so both show the same ones on the same lines.
+`DdotAnalysis` owns the warnings about ddot.it: the IntelliJ plugin only marks them in the editor, and `ddot lint` (in link:../ddot.it-java-ext[`ddot.it-java-ext`]) only prints them, so both show the same ones on the same lines.
 
 [cols="1,1,4",options="header"]
 |===
@@ -143,7 +143,7 @@ its `Kgraph`.
 
 == Known Consumers
 * link:{url-graphinout}[graphinout] `reader-ddot` — the reason this artifact stands alone.
-* link:../ddot.it-java[`ddot.it-java`] — the not-yet-released command-line tool. Also uses `ddotit-kbase`.
+* link:../ddot.it-java-ext[`ddot.it-java-ext`] — the not-yet-released command-line tool. Also uses `ddotit-kbase`.
 * link:../ddot.it-intellij[`ddot.it-intellij`] — the official ddot.it IntelliJ plugin. Also uses `ddotit-kbase`.
 * link:../adir[adir] — runs the CDS engine over its knowledge graph.
 
