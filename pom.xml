@@ -173,48 +173,76 @@
                     </execution>
                 </executions>
             </plugin>
+            <!--
+              Releases go to Maven Central (namespace it.ddot), the same way as ../graphinout (its
+              how-to-release.adoc): `mvn release:prepare` and `release:perform` with the profiles
+              central-deploy (local, in ~/.m2/settings.xml) and sign-for-sonar (below), then a click on
+              Publish at https://central.sonatype.com/publishing/deployments. Central wants sources and
+              javadoc next to every jar, so they are built always; the GPG signature only in a release.
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-source-plugin</artifactId>
+                <version>3.3.1</version>
+                <executions>
+                    <execution>
+                        <id>attach-sources</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>jar-no-fork</goal>
+                            <goal>test-jar-no-fork</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-javadoc-plugin</artifactId>
+                <version>3.11.2</version>
+                <configuration>
+                    <locale>en</locale>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>attach-javadocs</id>
+                        <goals>
+                            <goal>jar</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <!-- Replaces maven-deploy-plugin. Uploads wait in the Central Portal until published by hand. -->
+            <plugin>
+                <groupId>org.sonatype.central</groupId>
+                <artifactId>central-publishing-maven-plugin</artifactId>
+                <version>0.9.0</version>
+                <extensions>true</extensions>
+                <configuration>
+                    <publishingServerId>central</publishingServerId>
+                    <!-- Only MD5 + SHA1, Central's required set. -->
+                    <checksums>required</checksums>
+                </configuration>
+            </plugin>
+            <!-- Tags keep this repository's form, v0.3.0, rather than the default artifactId-version. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-release-plugin</artifactId>
+                <version>3.0.1</version>
+                <configuration>
+                    <tagNameFormat>v@{project.version}</tagNameFormat>
+                </configuration>
+            </plugin>
         </plugins>
     </build>
 
     <profiles>
-        <!--
-          Releases go to Maven Central (namespace it.ddot) via the Central Portal: `mvn -Prelease deploy`.
-          Central wants sources, javadoc and a GPG signature for every artifact, so this profile adds them;
-          everyday builds stay free of GPG. Needs, in ~/.m2/settings.xml, a <server> with id `central`
-          holding a Central Portal user token (https://central.sonatype.com/account), and a GPG key
-          whose public half is on a keyserver (keys.openpgp.org). See README.adoc, "Releasing".
-        -->
         <profile>
-            <id>release</id>
+            <id>sign-for-sonar</id>
+            <activation>
+                <property><name>performRelease</name><value>true</value></property>
+            </activation>
             <build>
                 <plugins>
-                    <plugin>
-                        <groupId>org.apache.maven.plugins</groupId>
-                        <artifactId>maven-source-plugin</artifactId>
-                        <version>3.4.0</version>
-                        <executions>
-                            <execution>
-                                <id>attach-sources</id>
-                                <goals>
-                                    <goal>jar-no-fork</goal>
-                                    <goal>test-jar-no-fork</goal>
-                                </goals>
-                            </execution>
-                        </executions>
-                    </plugin>
-                    <plugin>
-                        <groupId>org.apache.maven.plugins</groupId>
-                        <artifactId>maven-javadoc-plugin</artifactId>
-                        <version>3.12.0</version>
-                        <executions>
-                            <execution>
-                                <id>attach-javadocs</id>
-                                <goals>
-                                    <goal>jar</goal>
-                                </goals>
-                            </execution>
-                        </executions>
-                    </plugin>
                     <plugin>
                         <groupId>org.apache.maven.plugins</groupId>
                         <artifactId>maven-gpg-plugin</artifactId>
@@ -228,22 +256,6 @@
                                 </goals>
                             </execution>
                         </executions>
-                    </plugin>
-                    <!--
-                      Replaces maven-deploy-plugin. autoPublish is off: the upload is validated, then waits in
-                      https://central.sonatype.com/publishing/deployments for a click on Publish. A release on
-                      Central can never be changed or deleted, so that click is the last look.
-                    -->
-                    <plugin>
-                        <groupId>org.sonatype.central</groupId>
-                        <artifactId>central-publishing-maven-plugin</artifactId>
-                        <version>0.12.0</version>
-                        <extensions>true</extensions>
-                        <configuration>
-                            <publishingServerId>central</publishingServerId>
-                            <autoPublish>false</autoPublish>
-                            <waitUntil>validated</waitUntil>
-                        </configuration>
                     </plugin>
                 </plugins>
             </build>

@@ -167,21 +167,17 @@ Java 25 or newer is required.
 == Releasing
 
 Releases go to Maven Central under the namespace `it.ddot`, so consumers need no extra `<repository>`.
-The `release` profile in `pom.xml` adds what Central requires: sources and javadoc jars, a GPG signature on every file, and the upload through the Central Portal.
-Everyday builds don't use the profile and need no GPG.
-
-.One-time setup
-* A Central Portal user token, generated at https://central.sonatype.com/account, as a `<server>` with id `central` in `~/.m2/settings.xml`.
-* A GPG key whose public half is on a keyserver such as `keys.openpgp.org`, so Central can check the signatures.
-With more than one secret key, name it with `-Dgpg.keyname=…` or a `gpg.keyname` property in `settings.xml`.
+The process is the one in link:../graphinout/how-to-release.adoc[graphinout's `how-to-release.adoc`], with the same local profile `central-deploy` and Central Portal credentials in `~/.m2/settings.xml`.
+Every build already makes the sources and javadoc jars Central requires; the `sign-for-sonar` profile adds the GPG signatures.
 
 .Steps
-. Set `<version>` to the release, for example `0.3.1`, and commit it as `Release 0.3.1`.
-. Tag the commit `v0.3.1`.
-. Run `mvn -Prelease deploy`.
-It builds, tests, signs and uploads, then waits until Central has validated the upload.
+. Check that the working tree is clean and `mvn test` passes.
+. Run `mvn release:prepare -DpushChanges=false -P central-deploy,sign-for-sonar`.
+It commits the release version, tags it `v<version>` (for example `v0.3.1`) and commits the next snapshot.
+. Run `mvn release:perform -DlocalCheckout=true -DdeployAtEnd=true -P central-deploy,sign-for-sonar`.
+It builds the tag, signs it and uploads it to the Central Portal.
+. Push the commits and the tag.
 . Open https://central.sonatype.com/publishing/deployments, check the deployment and press *Publish*.
-A release on Central can never be changed or deleted, which is why `autoPublish` is off.
-. Set `<version>` to the next snapshot, for example `0.3.2-SNAPSHOT`, and commit it.
+A release on Central can never be changed or deleted.
 
-Central usually serves a published release within half an hour; search.maven.org can take longer to list it.
+`ddot.it-java-kbase` releases the same way.
