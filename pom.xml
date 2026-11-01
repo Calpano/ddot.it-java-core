@@ -19,6 +19,30 @@
         The ddot.it syntax and event model with ZERO third-party dependencies except org.jspecify:jspecify
         (annotations only).
     </description>
+    <url>https://ddot.it</url>
+
+    <!-- Metadata Maven Central requires on every published POM. -->
+    <licenses>
+        <license>
+            <name>MIT License</name>
+            <url>https://opensource.org/license/mit</url>
+            <distribution>repo</distribution>
+        </license>
+    </licenses>
+    <developers>
+        <developer>
+            <name>Max Völkel</name>
+            <email>mv@maxvoelkel.de</email>
+            <organization>Calpano</organization>
+            <organizationUrl>https://calpano.com</organizationUrl>
+        </developer>
+    </developers>
+    <scm>
+        <connection>scm:git:https://github.com/Calpano/ddot.it-java-core.git</connection>
+        <developerConnection>scm:git:git@github.com:Calpano/ddot.it-java-core.git</developerConnection>
+        <url>https://github.com/Calpano/ddot.it-java-core</url>
+        <tag>HEAD</tag>
+    </scm>
 
     <properties>
         <java.version>25</java.version>
@@ -152,12 +176,78 @@
         </plugins>
     </build>
 
-    <distributionManagement>
-        <repository>
-            <id>github-maven-repo</id>
-            <name>GitHub calpano Apache Maven Packages</name>
-            <url>https://maven.pkg.github.com/calpano/ddot.it-java-core</url>
-        </repository>
-    </distributionManagement>
+    <profiles>
+        <!--
+          Releases go to Maven Central (namespace it.ddot) via the Central Portal: `mvn -Prelease deploy`.
+          Central wants sources, javadoc and a GPG signature for every artifact, so this profile adds them;
+          everyday builds stay free of GPG. Needs, in ~/.m2/settings.xml, a <server> with id `central`
+          holding a Central Portal user token (https://central.sonatype.com/account), and a GPG key
+          whose public half is on a keyserver (keys.openpgp.org). See README.adoc, "Releasing".
+        -->
+        <profile>
+            <id>release</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-source-plugin</artifactId>
+                        <version>3.4.0</version>
+                        <executions>
+                            <execution>
+                                <id>attach-sources</id>
+                                <goals>
+                                    <goal>jar-no-fork</goal>
+                                    <goal>test-jar-no-fork</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-javadoc-plugin</artifactId>
+                        <version>3.12.0</version>
+                        <executions>
+                            <execution>
+                                <id>attach-javadocs</id>
+                                <goals>
+                                    <goal>jar</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-gpg-plugin</artifactId>
+                        <version>3.2.8</version>
+                        <executions>
+                            <execution>
+                                <id>sign-artifacts</id>
+                                <phase>verify</phase>
+                                <goals>
+                                    <goal>sign</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                    <!--
+                      Replaces maven-deploy-plugin. autoPublish is off: the upload is validated, then waits in
+                      https://central.sonatype.com/publishing/deployments for a click on Publish. A release on
+                      Central can never be changed or deleted, so that click is the last look.
+                    -->
+                    <plugin>
+                        <groupId>org.sonatype.central</groupId>
+                        <artifactId>central-publishing-maven-plugin</artifactId>
+                        <version>0.12.0</version>
+                        <extensions>true</extensions>
+                        <configuration>
+                            <publishingServerId>central</publishingServerId>
+                            <autoPublish>false</autoPublish>
+                            <waitUntil>validated</waitUntil>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 
 </project>
