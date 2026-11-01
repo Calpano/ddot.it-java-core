@@ -199,6 +199,9 @@
                 <version>3.11.2</version>
                 <configuration>
                     <locale>en</locale>
+                    <!-- JDK 23+ copies the DejaVu web fonts (~3.5 MB) into every javadoc jar, most of its size.
+                         Browsers fall back to system fonts. Same as ../graphinout. -->
+                    <additionalOptions>--no-fonts</additionalOptions>
                 </configuration>
                 <executions>
                     <execution>
